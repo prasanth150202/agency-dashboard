@@ -57,7 +57,7 @@
         <script>
             document.addEventListener('DOMContentLoaded', () => {
                 const inkGrid = '#eeeef0';
-                const brix = '#6842ea';
+                const brix = '#171717';
 
                 new window.Chart(document.getElementById('storeGrowthChart'), {
                     type: 'line',
@@ -67,7 +67,7 @@
                             label: 'Stores',
                             data: @json($storeGrowth),
                             borderColor: brix,
-                            backgroundColor: 'rgba(104, 66, 234, 0.08)',
+                            backgroundColor: 'rgba(23, 23, 23, 0.08)',
                             fill: true,
                             tension: 0.35,
                             pointRadius: 0,
@@ -133,7 +133,7 @@
                         datasets: [{
                             label: 'Stores',
                             data: @json($moduleAdoption->pluck('count')),
-                            backgroundColor: '#9a8cfa',
+                            backgroundColor: '#737373',
                             borderRadius: 6,
                             maxBarThickness: 22,
                         }],

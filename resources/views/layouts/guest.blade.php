@@ -15,7 +15,7 @@
     <body class="font-sans antialiased">
         <div class="flex min-h-screen flex-col items-center justify-center bg-ink-50 px-4 py-10">
             <a href="/" class="flex items-center gap-2.5">
-                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-brix-600 text-sm font-bold text-white">B</div>
+                <x-brix-mark class="h-16 w-16 shrink-0" />
                 <span class="text-lg font-semibold tracking-tight text-ink-900">BRIX</span>
             </a>
 

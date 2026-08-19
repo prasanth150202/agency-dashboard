@@ -27,9 +27,7 @@
 >
     {{-- Logo --}}
     <div class="flex h-16 shrink-0 items-center gap-2.5 border-b border-ink-200/70 px-5" :class="sidebarCollapsed && 'lg:justify-center lg:px-0'">
-        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brix-600 text-sm font-bold text-white">
-            B
-        </div>
+        <x-brix-mark class="h-12 w-12 shrink-0" />
         <span class="text-base font-semibold tracking-tight text-ink-900" x-show="!sidebarCollapsed" x-cloak>BRIX</span>
     </div>
 
