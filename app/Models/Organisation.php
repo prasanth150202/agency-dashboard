@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Brix\Agency as BrixAgency;
+use App\Services\AgencyFinanceService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -18,6 +20,8 @@ class Organisation extends Model
         'slug',
         'website',
     ];
+
+    private ?BrixAgency $brixAgencyCache = null;
 
     protected static function booted(): void
     {
@@ -66,5 +70,61 @@ class Organisation extends Model
     public function payouts(): HasMany
     {
         return $this->hasMany(Payout::class);
+    }
+
+    public function commissions(): HasMany
+    {
+        return $this->hasMany(Commission::class);
+    }
+
+    public function payoutAccount(): HasOne
+    {
+        return $this->hasOne(PayoutAccount::class);
+    }
+
+    public function ledgerEntries(): HasMany
+    {
+        return $this->hasMany(AgencyLedger::class);
+    }
+
+    public function finance(): AgencyFinanceService
+    {
+        return new AgencyFinanceService($this);
+    }
+
+    /**
+     * The real agency record in brix_superadmin that this organisation's
+     * login/session is bridged to. Auto-provisions one on first use
+     * (findOrCreate by brix_agency_id, falling back to creating a fresh
+     * `agencies` row) — no manual setup step required. This is the only
+     * place organisations.brix_agency_id is read or written.
+     */
+    public function brixAgency(): BrixAgency
+    {
+        if ($this->brixAgencyCache) {
+            return $this->brixAgencyCache;
+        }
+
+        if ($this->brix_agency_id) {
+            $agency = BrixAgency::find($this->brix_agency_id);
+
+            if ($agency) {
+                return $this->brixAgencyCache = $agency;
+            }
+        }
+
+        $owner = $this->users()->first();
+
+        $agency = BrixAgency::create([
+            'name' => $this->name,
+            'slug' => BrixAgency::uniqueSlug($this->slug ?: $this->name),
+            'owner_name' => $owner->name ?? $this->name,
+            'owner_email' => $owner->email ?? Str::slug($this->name).'@unknown.local',
+            'status' => 'active',
+        ]);
+
+        $this->forceFill(['brix_agency_id' => $agency->id])->save();
+
+        return $this->brixAgencyCache = $agency;
     }
 }

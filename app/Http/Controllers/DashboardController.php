@@ -29,30 +29,24 @@ class DashboardController extends Controller
         $totalStoresPrevious = (clone $storesQuery)->where('created_at', '<=', $cutoff)->count();
         $activeStoresPrevious = (clone $storesQuery)->where('status', 'active')->where('created_at', '<=', $cutoff)->count();
 
-        $startOfMonth = Carbon::now()->startOfMonth();
-        $endOfMonth = Carbon::now()->endOfMonth();
+        $finance = $organisation->finance();
+
         $startOfLastMonth = Carbon::now()->subMonthNoOverflow()->startOfMonth();
         $endOfLastMonth = Carbon::now()->subMonthNoOverflow()->endOfMonth();
 
-        $monthlyRevenue = Payout::where('organisation_id', $organisation->id)
-            ->where('status', 'paid')
-            ->whereBetween('date', [$startOfMonth, $endOfMonth])
-            ->sum('amount');
+        $monthlyRevenue = $finance->thisMonthEarnings();
 
-        $lastMonthRevenue = Payout::where('organisation_id', $organisation->id)
-            ->where('status', 'paid')
-            ->whereBetween('date', [$startOfLastMonth, $endOfLastMonth])
-            ->sum('amount');
+        $lastMonthRevenue = \App\Models\Commission::where('organisation_id', $organisation->id)
+            ->whereBetween('transaction_date', [$startOfLastMonth, $endOfLastMonth])
+            ->sum('commission_amount');
 
-        $pendingPayout = Payout::where('organisation_id', $organisation->id)
-            ->where('status', 'pending')
-            ->sum('amount');
+        $pendingPayout = $finance->pendingPayouts() + $finance->processingPayouts();
 
         $periodStart = Carbon::now()->subDays($range * 2);
         $periodEnd = Carbon::now()->subDays($range);
 
         $pendingPayoutPreviousPeriod = Payout::where('organisation_id', $organisation->id)
-            ->where('status', 'pending')
+            ->whereIn('status', Payout::RESERVING_STATUSES)
             ->whereBetween('date', [$periodStart, $periodEnd])
             ->sum('amount');
 
@@ -118,6 +112,12 @@ class DashboardController extends Controller
             'storeHealth' => $storeHealth,
             'moduleAdoption' => $moduleAdoption,
             'recentNotifications' => $recentNotifications,
+            'financeSummary' => [
+                'this_month' => $monthlyRevenue,
+                'available' => $finance->availableBalance(),
+                'pending' => $pendingPayout,
+                'last_payout' => $finance->lastPayout(),
+            ],
         ]);
     }
 }

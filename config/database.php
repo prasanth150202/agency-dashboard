@@ -84,6 +84,44 @@ return [
             ]) : [],
         ],
 
+        // The real agency/store-connection system of record: agencies,
+        // agency_users, stores, agency_store_onboarding, agency_stores,
+        // activity_logs, agency_ledger, etc. This app's own login/session
+        // (users/organisations, above) is bridged to a row in `agencies`
+        // via organisations.brix_agency_id — see Organisation::brixAgency().
+        'agency' => [
+            'driver' => 'mysql',
+            'host' => env('AGENCY_DB_HOST', '127.0.0.1'),
+            'port' => env('AGENCY_DB_PORT', '3306'),
+            'database' => env('AGENCY_DB_DATABASE', 'brix_superadmin'),
+            'username' => env('AGENCY_DB_USERNAME', 'root'),
+            'password' => env('AGENCY_DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+            'engine' => null,
+        ],
+
+        // Read-only connection to the Cart Ninja / BRIX Shopify app's own
+        // database — used ONLY to check whether BRIX is actually installed
+        // on a shop (config/services.php's shopify.app_auth_url flow).
+        // Never written to from this app; that data is owned by the
+        // Shopify app's own install/uninstall handlers.
+        'cartninja' => [
+            'driver' => 'mysql',
+            'host' => env('CARTNINJA_DB_HOST', '127.0.0.1'),
+            'port' => env('CARTNINJA_DB_PORT', '3306'),
+            'database' => env('CARTNINJA_DB_DATABASE', 'cartdrawer'),
+            'username' => env('CARTNINJA_DB_USERNAME', 'root'),
+            'password' => env('CARTNINJA_DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+            'engine' => null,
+        ],
+
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DB_URL'),

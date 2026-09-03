@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Brix\AgencyStoreOnboarding;
 use App\Models\Organisation;
 use App\Models\Store;
 use App\Models\StoreModule;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class StoreController extends Controller
 {
@@ -35,11 +34,31 @@ class StoreController extends Controller
             ->paginate(9)
             ->withQueryString();
 
+        // Onboarding attempts still waiting on Shopify installation (no
+        // local store row yet, so nothing to show in the grid below).
+        // Wrapped defensively — brix_superadmin being briefly unreachable
+        // must never break the Stores page itself.
+        $pendingConnections = collect();
+        try {
+            $agency = $organisation->brixAgency();
+            $localDomains = Store::where('organisation_id', $organisation->id)->pluck('shop_domain');
+
+            $pendingConnections = AgencyStoreOnboarding::where('agency_id', $agency->id)
+                ->whereNotIn('status', ['COMPLETED', 'FAILED', 'EXPIRED'])
+                ->where('expires_at', '>=', now())
+                ->whereNotIn('shop_domain', $localDomains)
+                ->latest()
+                ->get();
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         return view('stores.index', [
             'organisation' => $organisation,
             'stores' => $stores,
             'modules' => StoreModule::MODULES,
             'filters' => $request->only(['search', 'status', 'module', 'sort']),
+            'pendingConnections' => $pendingConnections,
         ]);
     }
 
@@ -66,44 +85,4 @@ class StoreController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
-    {
-        /** @var Organisation $organisation */
-        $organisation = $request->attributes->get('currentOrganisation');
-
-        $validated = $request->validateWithBag('store', [
-            'name' => ['required', 'string', 'max:255'],
-            'shop_domain' => ['required', 'string', 'max:255', 'unique:stores,shop_domain'],
-            'admin_url' => ['nullable', 'url', 'max:255'],
-        ]);
-
-        $domain = Str::of($validated['shop_domain'])
-            ->lower()
-            ->trim()
-            ->replaceMatches('/^https?:\/\//', '')
-            ->trim('/')
-            ->toString();
-
-        $store = Store::create([
-            'organisation_id' => $organisation->id,
-            'name' => $validated['name'],
-            'shop_domain' => $domain,
-            'admin_url' => $validated['admin_url'] ?: "https://{$domain}/admin",
-            'status' => 'active',
-            'installed_at' => now(),
-            'last_active_at' => now(),
-        ]);
-
-        foreach (array_keys(StoreModule::MODULES) as $module) {
-            $store->modules()->create([
-                'module' => $module,
-                'status' => 'inactive',
-                'last_updated_at' => now(),
-            ]);
-        }
-
-        return redirect()
-            ->route('stores.show', $store)
-            ->with('success', "{$store->name} was connected to BRIX.");
-    }
 }

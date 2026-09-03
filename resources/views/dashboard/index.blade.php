@@ -88,7 +88,9 @@
                                 {{ $store->last_active_at?->diffForHumans() ?? '—' }}
                             </span>
                             <a
-                                href="{{ route('stores.show', $store) }}"
+                                href="{{ $store->safe_app_url }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 class="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50"
                             >
                                 <x-lucide-eye class="h-3.5 w-3.5" />
@@ -128,6 +130,39 @@
                             Offline
                         </span>
                         <span class="text-sm font-semibold text-ink-900">{{ $storeHealth['offline'] }}</span>
+                    </a>
+                </div>
+            </div>
+
+            {{-- Finance --}}
+            <div class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
+                <h3 class="text-sm font-semibold text-ink-900">Finance</h3>
+                <div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div>
+                        <p class="text-xs text-ink-500">This Month</p>
+                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['this_month'], 2) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-ink-500">Available</p>
+                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['available'], 2) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-ink-500">Pending</p>
+                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['pending'], 2) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-ink-500">Last Payout</p>
+                        <p class="mt-0.5 text-sm font-semibold text-ink-900">
+                            {{ $financeSummary['last_payout'] ? '₹' . number_format((float) $financeSummary['last_payout']->amount, 2) : '—' }}
+                        </p>
+                    </div>
+                </div>
+                <div class="mt-4 flex gap-2">
+                    <a href="{{ route('earnings') }}" class="flex-1 rounded-lg border border-ink-200 px-3 py-2 text-center text-xs font-medium text-ink-700 hover:bg-ink-50">
+                        View Earnings
+                    </a>
+                    <a href="{{ route('payouts') }}" class="flex-1 rounded-lg bg-brix-600 px-3 py-2 text-center text-xs font-medium text-white hover:bg-brix-700">
+                        Request Payout
                     </a>
                 </div>
             </div>

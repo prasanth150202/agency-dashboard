@@ -35,4 +35,20 @@ return [
         ],
     ],
 
+    // BRIX's real Shopify App Store listing — never invent this value.
+    // The Node/React Router Shopify app (cartdrawerv2_ui, repo
+    // Cart_ninja_combo1, deployed at cartdrawer.fly.dev) owns the actual
+    // OAuth flow; app_auth_url is its own /auth entry point, hit with
+    // ?shop=... to install or re-authenticate.
+    'shopify' => [
+        'app_store_url' => env('BRIX_SHOPIFY_APP_STORE_URL', 'https://apps.shopify.com/thebrix-io'),
+        'app_auth_url' => env('SHOPIFY_APP_AUTH_URL', 'https://cartdrawer.fly.dev/auth'),
+        // Must match AGENCY_DASHBOARD_INTERNAL_SECRET in cartdrawerv2_ui's
+        // php_backend/install_shop.php and uninstall_shop.php (the live
+        // int.thebrix.io backend — Cartninja_admin_dashboard is retired).
+        // No fallback default on purpose — an unset secret must fail
+        // closed (500), never silently accept a known placeholder value.
+        'internal_secret' => env('AGENCY_DASHBOARD_INTERNAL_SECRET', ''),
+    ],
+
 ];

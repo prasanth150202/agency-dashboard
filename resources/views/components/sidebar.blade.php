@@ -1,9 +1,27 @@
 @php
-    $navItems = [
-        ['label' => 'Dashboard', 'icon' => 'layout-dashboard', 'route' => 'dashboard', 'active' => request()->routeIs('dashboard')],
-        ['label' => 'Stores', 'icon' => 'store', 'route' => 'stores.index', 'active' => request()->routeIs('stores.*')],
-        ['label' => 'Analytics', 'icon' => 'bar-chart-3', 'route' => 'analytics', 'active' => request()->routeIs('analytics')],
-        ['label' => 'Payout', 'icon' => 'wallet', 'route' => 'payouts', 'active' => request()->routeIs('payouts')],
+    $sections = [
+        [
+            'label' => null,
+            'items' => [
+                ['label' => 'Dashboard', 'icon' => 'layout-dashboard', 'route' => 'dashboard', 'active' => request()->routeIs('dashboard')],
+                ['label' => 'Stores', 'icon' => 'store', 'route' => 'stores.index', 'active' => request()->routeIs('stores.*')],
+                ['label' => 'Analytics', 'icon' => 'bar-chart-3', 'route' => 'analytics', 'active' => request()->routeIs('analytics')],
+            ],
+        ],
+        [
+            'label' => 'Finance',
+            'items' => [
+                ['label' => 'Overview', 'icon' => 'gauge', 'route' => 'overview', 'active' => request()->routeIs('overview')],
+                ['label' => 'Earnings', 'icon' => 'indian-rupee', 'route' => 'earnings', 'active' => request()->routeIs('earnings*')],
+                ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'payouts', 'active' => request()->routeIs('payouts*')],
+            ],
+        ],
+        [
+            'label' => 'Settings',
+            'items' => [
+                ['label' => 'Payout Settings', 'icon' => 'landmark', 'route' => 'payout-settings', 'active' => request()->routeIs('payout-settings')],
+            ],
+        ],
     ];
 @endphp
 
@@ -32,27 +50,43 @@
     </div>
 
     {{-- Nav --}}
-    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        @foreach ($navItems as $item)
-            <div class="group relative">
-                <a
-                    href="{{ route($item['route']) }}"
-                    x-on:click="mobileNavOpen = false"
-                    class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors {{ $item['active'] ? 'bg-brix-50 text-brix-700' : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900' }}"
-                    :class="sidebarCollapsed && 'lg:justify-center'"
-                >
-                    <x-dynamic-component :component="'lucide-' . $item['icon']" class="h-[18px] w-[18px] shrink-0 {{ $item['active'] ? 'text-brix-600' : 'text-ink-400' }}" />
-                    <span x-show="!sidebarCollapsed" x-cloak>{{ $item['label'] }}</span>
-                </a>
+    <nav class="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        @foreach ($sections as $section)
+            <div>
+                @if ($section['label'])
+                    <p
+                        class="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-ink-400"
+                        x-show="!sidebarCollapsed"
+                        x-cloak
+                    >
+                        {{ $section['label'] }}
+                    </p>
+                @endif
 
-                {{-- Tooltip shown only when collapsed --}}
-                <span
-                    x-show="sidebarCollapsed"
-                    x-cloak
-                    class="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel transition-opacity group-hover:opacity-100 lg:group-hover:block"
-                >
-                    {{ $item['label'] }}
-                </span>
+                <div class="space-y-1">
+                    @foreach ($section['items'] as $item)
+                        <div class="group relative">
+                            <a
+                                href="{{ route($item['route']) }}"
+                                x-on:click="mobileNavOpen = false"
+                                class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors {{ $item['active'] ? 'bg-brix-50 text-brix-700' : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900' }}"
+                                :class="sidebarCollapsed && 'lg:justify-center'"
+                            >
+                                <x-dynamic-component :component="'lucide-' . $item['icon']" class="h-[18px] w-[18px] shrink-0 {{ $item['active'] ? 'text-brix-600' : 'text-ink-400' }}" />
+                                <span x-show="!sidebarCollapsed" x-cloak>{{ $item['label'] }}</span>
+                            </a>
+
+                            {{-- Tooltip shown only when collapsed --}}
+                            <span
+                                x-show="sidebarCollapsed"
+                                x-cloak
+                                class="pointer-events-none absolute left-full top-1/2 z-50 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel transition-opacity group-hover:opacity-100 lg:group-hover:block"
+                            >
+                                {{ $item['label'] }}
+                            </span>
+                        </div>
+                    @endforeach
+                </div>
             </div>
         @endforeach
     </nav>

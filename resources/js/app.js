@@ -58,6 +58,51 @@ Alpine.data('profileMenu', () => ({
     },
 }));
 
+Alpine.data('requestPayoutModal', (availableBalance) => ({
+    show: false,
+    amount: availableBalance,
+    submitting: false,
+    error: null,
+    success: null,
+
+    open() {
+        this.show = true;
+        this.error = null;
+        this.success = null;
+        this.amount = availableBalance;
+    },
+
+    close() {
+        if (this.submitting) return; // don't let a mid-flight request get closed out from under it
+        this.show = false;
+    },
+
+    submit() {
+        // Duplicate-click guard — the server independently re-validates too.
+        if (this.submitting) return;
+
+        this.submitting = true;
+        this.error = null;
+
+        window.axios
+            .post('/payouts/request', { amount: this.amount })
+            .then((response) => {
+                this.success = response.data.payout;
+            })
+            .catch((err) => {
+                this.error = err.response?.data?.message || 'Something went wrong. Please try again.';
+            })
+            .finally(() => {
+                this.submitting = false;
+            });
+    },
+
+    finish() {
+        // Reload so the balance cards and payout history reflect the new request.
+        window.location.reload();
+    },
+}));
+
 Alpine.data('toastNotice', (message, type) => ({
     show: true,
     message,

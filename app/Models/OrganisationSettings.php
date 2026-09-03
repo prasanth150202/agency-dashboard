@@ -14,11 +14,13 @@ class OrganisationSettings extends Model
         'currency',
         'available_balance',
         'lifetime_earnings',
+        'default_commission_rate',
     ];
 
     protected $casts = [
         'available_balance' => 'decimal:2',
         'lifetime_earnings' => 'decimal:2',
+        'default_commission_rate' => 'decimal:2',
     ];
 
     public function organisation(): BelongsTo

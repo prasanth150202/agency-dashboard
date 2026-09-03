@@ -4,6 +4,16 @@
         Stores
     </a>
 
+    @if (session('success') || request('connected'))
+        <div class="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+            {{ session('success') ?? '✓ Store connected successfully.' }}
+        </div>
+    @elseif (session('info'))
+        <div class="mt-4 rounded-xl bg-brix-50 px-4 py-3 text-sm font-medium text-ink-700">{{ session('info') }}</div>
+    @elseif (session('error'))
+        <div class="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{{ session('error') }}</div>
+    @endif
+
     <div class="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="flex items-center gap-4">
             <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-base font-semibold text-white">
@@ -29,7 +39,9 @@
                 Visit site
             </a>
             <a
-                href="{{ route('stores.show', $store) }}"
+                href="{{ $store->brix_app_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
                 class="inline-flex items-center gap-1.5 rounded-lg bg-brix-600 px-3.5 py-2.5 text-sm font-medium text-white hover:bg-brix-700"
             >
                 <x-lucide-eye class="h-4 w-4" />
@@ -38,22 +50,65 @@
         </div>
     </div>
 
-    <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+    <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-5">
         <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">Store status</p>
             <div class="mt-2"><x-status-badge :status="$store->status" /></div>
         </div>
+        @php
+            $installBadge = match ($store->installation_status) {
+                'INSTALLED' => ['active', '● Installed'],
+                'INSTALLING' => ['attention', '● Installing'],
+                'UNINSTALLED' => ['offline', '● Uninstalled'],
+                'ERROR' => ['offline', '● Error'],
+                default => ['inactive', '● Not installed'],
+            };
+            $authBadge = match ($store->authorization_status) {
+                'AUTHORIZED' => ['active', '✓ Connected'],
+                'AUTHORIZING' => ['attention', '● Authorizing'],
+                'EXPIRED' => ['offline', '✕ Expired'],
+                'REVOKED' => ['offline', '✕ Revoked'],
+                default => ['inactive', '○ Not authorized'],
+            };
+        @endphp
         <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">BRIX</p>
-            <div class="mt-2"><x-status-badge status="active" label="Installed" /></div>
+            <div class="mt-2"><x-status-badge :status="$installBadge[0]" :label="$installBadge[1]" /></div>
         </div>
         <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">Shopify</p>
-            <div class="mt-2"><x-status-badge status="active" label="Connected" /></div>
+            <div class="mt-2"><x-status-badge :status="$authBadge[0]" :label="$authBadge[1]" /></div>
         </div>
         <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">Last sync</p>
             <p class="mt-2.5 text-sm font-medium text-ink-900">{{ $store->last_active_at?->diffForHumans() ?? '—' }}</p>
+        </div>
+        @php $connectionBadge = $store->connection_badge; $connectionAction = $store->connection_action; @endphp
+        <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+            <p class="text-xs font-medium text-ink-500">Agency connection</p>
+            <div class="mt-2"><x-status-badge :status="$connectionBadge['status']" :label="$connectionBadge['label']" /></div>
+            @if ($connectionAction['route'])
+                <form
+                    method="POST"
+                    action="{{ route($connectionAction['route'], $store) }}"
+                    class="mt-3"
+                    x-data="{ submitting: false }"
+                    x-on:submit="submitting = true"
+                >
+                    @csrf
+                    <button
+                        type="submit"
+                        x-bind:disabled="submitting"
+                        class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-3 py-2 text-xs font-medium text-white hover:bg-brix-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <x-lucide-loader-2 x-show="submitting" class="h-3.5 w-3.5 animate-spin" />
+                        <span x-text="submitting ? 'Please wait…' : '{{ $connectionAction['label'] }}'"></span>
+                    </button>
+                </form>
+                @if ($connectionBadge['status'] === 'attention' && $store->agency_relationship_status === 'PENDING')
+                    <p class="mt-2 text-xs text-ink-400">Allow this store to be managed from your agency dashboard.</p>
+                @endif
+            @endif
         </div>
     </div>
 

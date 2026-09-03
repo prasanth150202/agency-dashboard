@@ -65,7 +65,10 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // BRIX agencies are India-based (brix_superadmin_dashboard uses the same
+    // zone) — UTC made every time-of-day greeting and "today" boundary wrong
+    // relative to actual local time.
+    'timezone' => 'Asia/Kolkata',
 
     /*
     |--------------------------------------------------------------------------

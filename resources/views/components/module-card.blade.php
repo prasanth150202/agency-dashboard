@@ -22,7 +22,7 @@
 
     @if ($isActive)
         <a
-            href="{{ $store->admin_url }}"
+            href="{{ $store->safe_app_url }}"
             target="_blank"
             rel="noopener noreferrer"
             class="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-xs font-medium text-ink-700 hover:bg-ink-50"

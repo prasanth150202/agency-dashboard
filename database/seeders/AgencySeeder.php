@@ -58,8 +58,9 @@ class AgencySeeder extends Seeder
 
         $abilashmiStores = $this->seedStores(
             organisation: $abilashmi,
-            names: ['Lushra', 'Bawse Baby', 'CoreEats', 'Aadhya Herbal Care', 'Super Foods', ...array_slice($pool, 0, 19)],
-            statusOverrides: ['CoreEats' => 'attention', 'Pixel & Thread' => 'attention', 'Northwind Outdoors' => 'offline'],
+            names: ['CoreEats', 'Aadhya Herbal Care', 'Hapily Earth'],
+            statusOverrides: ['CoreEats' => 'attention'],
+            domainOverrides: ['CoreEats' => 'coreeat.myshopify.com', 'Hapily Earth' => 'hapliearth.myshopify.com'],
         );
 
         $growthLabsStores = $this->seedStores(
@@ -102,7 +103,7 @@ class AgencySeeder extends Seeder
     /**
      * @return \Illuminate\Support\Collection<int, Store>
      */
-    private function seedStores(Organisation $organisation, array $names, array $statusOverrides = [])
+    private function seedStores(Organisation $organisation, array $names, array $statusOverrides = [], array $domainOverrides = [])
     {
         $stores = collect();
         $total = count($names);
@@ -112,7 +113,7 @@ class AgencySeeder extends Seeder
         );
 
         foreach ($names as $index => $name) {
-            $domain = Str::of($name)
+            $domain = $domainOverrides[$name] ?? Str::of($name)
                 ->lower()
                 ->replace('&', 'and')
                 ->replaceMatches('/[^a-z0-9]+/', '-')
