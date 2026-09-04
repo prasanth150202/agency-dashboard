@@ -8,12 +8,15 @@ use App\Models\Brix\AgencyStoreOnboarding;
 use App\Models\Brix\Store as BrixStore;
 use App\Models\Organisation;
 use App\Models\Store;
+use App\Services\Brix\BrixInstallCheck;
 use App\Services\Brix\LocalStoreSync;
 use App\Services\Brix\RateLimitGuard;
 use App\Services\Brix\StoreAuthorization;
+use App\Services\Brix\StoreInstallationSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -169,7 +172,7 @@ class StoreConnectionController extends Controller
             abort(410, 'This connection attempt expired. Please start again from Stores.');
         }
 
-        $brixStore = BrixStore::where('shop_domain', $onboarding->shop_domain)->first();
+        $brixStore = $this->reconcileInstallation($onboarding);
 
         if ($brixStore?->installation_status === 'INSTALLED') {
             // Already installed — never send an already-connected merchant
@@ -357,6 +360,64 @@ class StoreConnectionController extends Controller
         return redirect()->route('stores.connect.wait', ['token' => $rawToken]);
     }
 
+    /**
+     * brix_superadmin's stores.installation_status only flips to INSTALLED
+     * when a Shopify install webhook lands during a live onboarding. A
+     * store the agency connects that was ALREADY installed — before this
+     * onboarding, or straight from the App Store — never triggers that,
+     * which is what leaves the merchant bounced back to the App Store for
+     * an app they already have.
+     *
+     * Backstop: when the mirror isn't INSTALLED, ask the live BRIX backend
+     * directly (cached briefly — the wait screen polls buildStatus() every
+     * couple of seconds) and, if it confirms the install, mirror it now —
+     * the same effect as the webhook — so the rest of the flow proceeds
+     * straight to agency authorization. A missing/unreachable backend
+     * leaves the mirror untouched, so the existing App-Store fallback
+     * still applies.
+     */
+    private function reconcileInstallation(AgencyStoreOnboarding $onboarding): ?BrixStore
+    {
+        $brixStore = BrixStore::where('shop_domain', $onboarding->shop_domain)->first();
+
+        if ($brixStore?->installation_status === 'INSTALLED') {
+            return $brixStore;
+        }
+
+        // Cache a string sentinel, not the bool/null itself — Cache::remember
+        // never stores a null return and would re-hit a down backend on
+        // every 2.5s poll. "unknown" and "not_installed" are both cached.
+        $verdict = Cache::remember(
+            "brix-install-check:{$onboarding->shop_domain}",
+            now()->addSeconds(30),
+            fn () => match (BrixInstallCheck::isInstalled($onboarding->shop_domain)) {
+                true => 'installed',
+                false => 'not_installed',
+                null => 'unknown',
+            },
+        );
+
+        if ($verdict !== 'installed') {
+            return $brixStore;
+        }
+
+        $result = StoreInstallationSync::mirror($onboarding->shop_domain, (int) $onboarding->agency_id, null, 'wizard_reconcile');
+
+        if ($result === null) {
+            // Shop belongs to another agency — leave the flow to fail the
+            // same way it would have without this backstop.
+            return $brixStore;
+        }
+
+        if (in_array($onboarding->status, ['STARTED', 'INSTALL_REQUIRED', 'INSTALLING'], true)) {
+            $onboarding->update(['status' => 'AUTHORIZING', 'created_store_id' => $result['store']->id]);
+        }
+
+        Cache::forget("brix-install-check:{$onboarding->shop_domain}");
+
+        return $result['store'];
+    }
+
     private function authorizeToken(Request $request, string $token): AgencyStoreOnboarding
     {
         $onboarding = AgencyStoreOnboarding::findByRawToken($token);
@@ -387,7 +448,7 @@ class StoreConnectionController extends Controller
             return ['stage' => 'FAILED', 'shop_domain' => $onboarding->shop_domain, 'message' => $onboarding->failure_reason ?? "We couldn't connect this store."];
         }
 
-        $brixStore = BrixStore::where('shop_domain', $onboarding->shop_domain)->first();
+        $brixStore = $this->reconcileInstallation($onboarding);
 
         if (! $brixStore || $brixStore->installation_status === 'NOT_INSTALLED') {
             return ['stage' => 'INSTALL_REQUIRED', 'shop_domain' => $onboarding->shop_domain, 'agency_name' => $agency->name, 'message' => "Click the button below — we'll pick up automatically once it's installed."];

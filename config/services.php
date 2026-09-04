@@ -43,6 +43,11 @@ return [
     'shopify' => [
         'app_store_url' => env('BRIX_SHOPIFY_APP_STORE_URL', 'https://apps.shopify.com/thebrix-io'),
         'app_auth_url' => env('SHOPIFY_APP_AUTH_URL', 'https://cartdrawer.fly.dev/auth'),
+        // The live BRIX Shopify backend (php_backend, deployed at
+        // int.thebrix.io). Used to counter-check real Shopify install
+        // state — store_install_status.php — when brix_superadmin's own
+        // stores.installation_status mirror hasn't caught up.
+        'backend_url' => env('BRIX_BACKEND_URL', 'https://int.thebrix.io'),
         // Must match AGENCY_DASHBOARD_INTERNAL_SECRET in cartdrawerv2_ui's
         // php_backend/install_shop.php and uninstall_shop.php (the live
         // int.thebrix.io backend — Cartninja_admin_dashboard is retired).
