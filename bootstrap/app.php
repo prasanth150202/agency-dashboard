@@ -15,6 +15,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'set.organisation' => \App\Http\Middleware\SetCurrentOrganisation::class,
         ]);
 
+        // Trust the reverse proxy in front of `php artisan serve` (a local
+        // ngrok/cloudflared tunnel terminating TLS) so Laravel reads its
+        // X-Forwarded-Proto header instead of assuming the raw local
+        // connection's scheme (http) — without this, every absolute URL
+        // Laravel generates (asset URLs, form actions, redirects) comes out
+        // as http:// even when the page itself loaded over https://,
+        // which browsers then block as mixed content. Local dev only —
+        // trusting '*' is not something to carry into a real deployment
+        // behind an untrusted network.
+        $middleware->trustProxies(at: '*');
+
         // Server-to-server webhooks (Cartninja_admin_dashboard's PHP install/
         // uninstall handlers) have no Laravel session/CSRF token — they're
         // authenticated by the shared-secret header checked inside

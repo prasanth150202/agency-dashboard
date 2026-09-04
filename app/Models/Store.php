@@ -144,7 +144,19 @@ class Store extends Model
      */
     public function getBrixAppUrlAttribute(): string
     {
-        return "https://admin.shopify.com/store/{$this->shop_handle}/apps/".self::SHOPIFY_APP_HANDLE.'/app';
+        return self::brixAppUrlFor($this->shop_domain, '/app');
+    }
+
+    /**
+     * The embedded-app launch URL for a known shop domain, for callers
+     * that only have a shop_domain string (e.g. a brix_superadmin-DB
+     * BrixStore row) rather than a local Store instance.
+     */
+    public static function brixAppUrlFor(string $shopDomain, string $path = '/app'): string
+    {
+        $shopHandle = Str::before($shopDomain, '.myshopify.com');
+
+        return "https://admin.shopify.com/store/{$shopHandle}/apps/".self::SHOPIFY_APP_HANDLE.$path;
     }
 
     /**

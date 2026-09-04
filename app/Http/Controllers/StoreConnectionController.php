@@ -173,10 +173,9 @@ class StoreConnectionController extends Controller
 
         if ($brixStore?->installation_status === 'INSTALLED') {
             // Already installed — never send an already-connected merchant
-            // back to the App Store. Nothing left for this endpoint to do;
-            // the wait page's own polling has already moved to the
-            // authorization step.
-            return redirect()->route('stores.connect.wait', ['token' => $token]);
+            // back to the App Store. Send them straight into their
+            // installed BRIX app to continue the agency-authorization flow.
+            return redirect()->away(Store::brixAppUrlFor($onboarding->shop_domain, '/app/agency-connect'));
         }
 
         $onboarding->update(['status' => 'INSTALL_REQUIRED']);
@@ -391,7 +390,7 @@ class StoreConnectionController extends Controller
         $brixStore = BrixStore::where('shop_domain', $onboarding->shop_domain)->first();
 
         if (! $brixStore || $brixStore->installation_status === 'NOT_INSTALLED') {
-            return ['stage' => 'INSTALL_REQUIRED', 'shop_domain' => $onboarding->shop_domain, 'agency_name' => $agency->name, 'message' => 'BRIX needs to be installed on this store.'];
+            return ['stage' => 'INSTALL_REQUIRED', 'shop_domain' => $onboarding->shop_domain, 'agency_name' => $agency->name, 'message' => "Click the button below — we'll pick up automatically once it's installed."];
         }
 
         if ($brixStore->installation_status === 'UNINSTALLED') {
@@ -420,17 +419,19 @@ class StoreConnectionController extends Controller
                 'stage' => 'ACTIVATION_REQUIRED',
                 'shop_domain' => $onboarding->shop_domain,
                 'agency_name' => $agency->name,
-                'message' => 'Store is authorized and ready to activate.',
+                'message' => 'Click the button below to finish connecting this store.',
                 'store_id' => $local->id,
                 'activate_url' => route('stores.activate', $local),
+                'brix_app_url' => Store::brixAppUrlFor($onboarding->shop_domain, '/app/agency-connect'),
             ],
             default => [
                 'stage' => 'AUTHORIZATION_REQUIRED',
                 'shop_domain' => $onboarding->shop_domain,
                 'agency_name' => $agency->name,
-                'message' => 'Allow this store to be managed from your agency dashboard.',
+                'message' => "Click the button below to continue — we won't proceed without your confirmation.",
                 'store_id' => $local->id,
                 'authorize_url' => route('stores.authorize', $local),
+                'brix_app_url' => Store::brixAppUrlFor($onboarding->shop_domain, '/app/agency-connect'),
             ],
         };
     }

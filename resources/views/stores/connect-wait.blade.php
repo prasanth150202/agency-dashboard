@@ -10,7 +10,8 @@
     >
         <div class="text-center">
             <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full" :class="iconWrapClass">
-                <x-lucide-loader-2 x-show="isWorking" class="h-6 w-6 animate-spin text-brix-600" />
+                <x-lucide-loader-2 x-show="isChecking" class="h-6 w-6 animate-spin text-brix-600" />
+                <x-lucide-mouse-pointer-click x-show="needsAction" x-cloak class="h-6 w-6 text-amber-600" />
                 <x-lucide-check-circle-2 x-show="stage === 'COMPLETE'" x-cloak class="h-6 w-6 text-emerald-600" />
                 <x-lucide-alert-triangle x-show="isError" x-cloak class="h-6 w-6 text-rose-600" />
             </div>
@@ -68,15 +69,27 @@
                 </div>
             </dl>
             <p class="text-sm text-ink-500">Allow this store to be managed from your agency dashboard.</p>
-            <button
-                type="button"
-                x-on:click="authorizeStore()"
-                x-bind:disabled="processing"
-                class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700 disabled:cursor-not-allowed disabled:opacity-60"
+            <a
+                :href="brixAppUrl"
+                x-on:click.prevent="openBrixAppWindow()"
+                class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700"
             >
-                <x-lucide-loader-2 x-show="processing" class="h-4 w-4 animate-spin" />
-                <span x-text="processing ? 'Authorizing…' : 'Authorize Store'"></span>
-            </button>
+                <x-lucide-external-link class="h-4 w-4" />
+                <span>Continue in Shopify Admin</span>
+            </a>
+            <p class="text-xs text-ink-400">Opens BRIX inside the merchant's Shopify Admin to authorize the connection.</p>
+            <details class="pt-1">
+                <summary class="cursor-pointer text-xs font-medium text-ink-400 hover:text-ink-600">Or authorize from here</summary>
+                <button
+                    type="button"
+                    x-on:click="authorizeStore()"
+                    x-bind:disabled="processing"
+                    class="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    <x-lucide-loader-2 x-show="processing" class="h-4 w-4 animate-spin" />
+                    <span x-text="processing ? 'Authorizing…' : 'Authorize Store'"></span>
+                </button>
+            </details>
         </div>
 
         <!-- Step: Activation -->
@@ -86,15 +99,27 @@
                 <div class="flex items-center gap-2 text-sm text-emerald-600"><x-lucide-check class="h-4 w-4" /> Shopify Authorized</div>
                 <div class="flex items-center gap-2 text-sm text-emerald-600"><x-lucide-check class="h-4 w-4" /> Agency Authorized</div>
             </div>
-            <button
-                type="button"
-                x-on:click="activateStore()"
-                x-bind:disabled="processing"
-                class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700 disabled:cursor-not-allowed disabled:opacity-60"
+            <a
+                :href="brixAppUrl"
+                x-on:click.prevent="openBrixAppWindow()"
+                class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700"
             >
-                <x-lucide-loader-2 x-show="processing" class="h-4 w-4 animate-spin" />
-                <span x-text="processing ? 'Activating…' : 'Activate Store'"></span>
-            </button>
+                <x-lucide-external-link class="h-4 w-4" />
+                <span>Continue in Shopify Admin</span>
+            </a>
+            <p class="text-xs text-ink-400">Opens BRIX inside the merchant's Shopify Admin to activate the connection.</p>
+            <details class="pt-1">
+                <summary class="cursor-pointer text-xs font-medium text-ink-400 hover:text-ink-600">Or activate from here</summary>
+                <button
+                    type="button"
+                    x-on:click="activateStore()"
+                    x-bind:disabled="processing"
+                    class="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    <x-lucide-loader-2 x-show="processing" class="h-4 w-4 animate-spin" />
+                    <span x-text="processing ? 'Activating…' : 'Activate Store'"></span>
+                </button>
+            </details>
         </div>
 
         <!-- Step: Complete -->
@@ -133,6 +158,7 @@
                 redirectUrl: storesUrl,
                 installUrl,
                 storesUrl,
+                brixAppUrl: null,
                 authorizeUrl: null,
                 activateUrl: null,
                 processing: false,
@@ -144,8 +170,11 @@
                     { label: 'Authorization', state: '' },
                     { label: 'Activation', state: '' },
                 ],
-                get isWorking() {
-                    return !this.isError && this.stage !== 'COMPLETE';
+                get needsAction() {
+                    return ['INSTALL_REQUIRED', 'AUTHORIZATION_REQUIRED', 'ACTIVATION_REQUIRED'].includes(this.stage);
+                },
+                get isChecking() {
+                    return !this.isError && !this.needsAction && this.stage !== 'COMPLETE';
                 },
                 get isError() {
                     return ['FAILED', 'EXPIRED', 'UNINSTALLED'].includes(this.stage);
@@ -153,6 +182,7 @@
                 get iconWrapClass() {
                     if (this.stage === 'COMPLETE') return 'bg-emerald-50';
                     if (this.isError) return 'bg-rose-50';
+                    if (this.needsAction) return 'bg-amber-50';
                     return 'bg-brix-50';
                 },
                 csrfToken() {
@@ -164,6 +194,13 @@
                 // interaction, so this is never called from start()/x-init.
                 openInstallWindow() {
                     window.open(this.installUrl, 'brix-shopify-connect');
+                },
+                // Same click-triggered-window.open constraint as openInstallWindow()
+                // above — this hands the merchant off into their installed BRIX
+                // app's own agency-connect screen.
+                openBrixAppWindow() {
+                    if (!this.brixAppUrl) return;
+                    window.open(this.brixAppUrl, 'brix-shopify-connect');
                 },
                 start() {
                     this.poll();
@@ -190,19 +227,25 @@
                     this.agencyName = data.agency_name || this.agencyName;
                     this.authorizeUrl = data.authorize_url || this.authorizeUrl;
                     this.activateUrl = data.activate_url || this.activateUrl;
+                    this.brixAppUrl = data.brix_app_url || this.brixAppUrl;
                     if (data.redirect) this.redirectUrl = data.redirect;
 
                     const titles = {
-                        INSTALL_REQUIRED: 'BRIX needs to be installed on this store',
+                        INSTALL_REQUIRED: 'Action needed: install BRIX',
                         INSTALLING: 'Installing BRIX…',
-                        AUTHORIZATION_REQUIRED: 'Almost there',
-                        ACTIVATION_REQUIRED: 'Ready to activate',
+                        AUTHORIZATION_REQUIRED: 'Action needed: authorize this store',
+                        ACTIVATION_REQUIRED: 'Action needed: activate this store',
                         COMPLETE: 'Store Connected',
                         FAILED: "We couldn't connect this store",
                         UNINSTALLED: 'BRIX is no longer installed on this store',
                     };
+                    const subtitles = {
+                        INSTALL_REQUIRED: "Click the button below — we'll pick up automatically once it's installed.",
+                        AUTHORIZATION_REQUIRED: "Click the button below to continue — we won't proceed without your confirmation.",
+                        ACTIVATION_REQUIRED: "Click the button below to finish connecting this store.",
+                    };
                     this.title = titles[data.stage] || this.title;
-                    this.subtitle = data.message || '';
+                    this.subtitle = data.message || subtitles[data.stage] || '';
 
                     const stepStates = {
                         INSTALL_REQUIRED: ['done', 'active', '', ''],
