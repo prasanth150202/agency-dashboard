@@ -17,7 +17,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'mysql'),
 
     /*
     |--------------------------------------------------------------------------
@@ -82,25 +82,6 @@ return [
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
-        ],
-
-        // The real agency/store-connection system of record: agencies,
-        // agency_users, stores, agency_store_onboarding, agency_stores,
-        // activity_logs, agency_ledger, etc. This app's own login/session
-        // (users/organisations, above) is bridged to a row in `agencies`
-        // via organisations.brix_agency_id — see Organisation::brixAgency().
-        'agency' => [
-            'driver' => 'mysql',
-            'host' => env('AGENCY_DB_HOST', '127.0.0.1'),
-            'port' => env('AGENCY_DB_PORT', '3306'),
-            'database' => env('AGENCY_DB_DATABASE', 'brix_superadmin'),
-            'username' => env('AGENCY_DB_USERNAME', 'root'),
-            'password' => env('AGENCY_DB_PASSWORD', ''),
-            'charset' => 'utf8mb4',
-            'collation' => 'utf8mb4_unicode_ci',
-            'prefix' => '',
-            'strict' => true,
-            'engine' => null,
         ],
 
         // Read-only connection to the Cart Ninja / BRIX Shopify app's own

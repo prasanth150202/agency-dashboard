@@ -2,18 +2,23 @@
 
 namespace App\Models;
 
+use App\Models\Partners\AgencyStore;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
+/**
+ * The real, canonical `stores` table (2,502 rows) — owned by exactly one
+ * agency (agency_id). Since the single-database merge there is no longer
+ * a separate local mirror: this class reads/writes the same row an
+ * admin dashboard would see.
+ */
 class Store extends Model
 {
-    use HasFactory;
-
-    public const STATUSES = ['active', 'attention', 'offline'];
+    public const STATUSES = ['active', 'attention', 'trial', 'offline'];
 
     /**
      * BRIX's app handle in the Shopify App Store — the segment of the
@@ -28,8 +33,8 @@ class Store extends Model
     /**
      * Display labels for the BRIX Shopify app's real plan_key values
      * (Cart_ninja_combo1's app/config/plans.js — the single source of
-     * truth for pricing/plans). Used by LocalStoreSync to translate a
-     * mirrored plan_key into this column's existing free-text format.
+     * truth for pricing/plans). Used to translate a mirrored plan_key
+     * into this column's free-text format.
      */
     public const PLAN_LABELS = [
         'free' => 'Free',
@@ -38,32 +43,55 @@ class Store extends Model
     ];
 
     protected $fillable = [
-        'organisation_id',
-        'name',
+        'agency_id',
+        'store_name',
         'shop_domain',
         'shopify_shop_id',
-        'admin_url',
         'status',
         'installation_status',
         'authorization_status',
-        'agency_relationship_status',
         'plan',
-        'commission_rate',
+        'commission_override_enabled',
+        'commission_override_rate',
         'installed_at',
         'uninstalled_at',
         'last_active_at',
     ];
 
     protected $casts = [
+        'commission_override_enabled' => 'boolean',
+        'commission_override_rate' => 'decimal:2',
         'installed_at' => 'datetime',
         'uninstalled_at' => 'datetime',
         'last_active_at' => 'datetime',
-        'commission_rate' => 'decimal:2',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
+    /**
+     * This app's own login/tenant record for the store's owning agency —
+     * bridged via organisations.brix_agency_id, since stores belong to
+     * `agencies` directly (agency_id), not to `organisations`.
+     */
     public function organisation(): BelongsTo
     {
-        return $this->belongsTo(Organisation::class);
+        return $this->belongsTo(Organisation::class, 'agency_id', 'brix_agency_id');
+    }
+
+    public function agency(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Partners\Partner::class, 'agency_id');
+    }
+
+    /**
+     * The authorization relationship between this store and its owning
+     * agency (PENDING/AUTHORIZED/ACTIVE/DISCONNECTED) — replaces the old
+     * mirrored agency_relationship_status column; computed live now that
+     * both tables are in the same database.
+     */
+    public function agencyStore(): HasOne
+    {
+        return $this->hasOne(AgencyStore::class, 'store_id');
     }
 
     public function modules(): HasMany
@@ -76,14 +104,9 @@ class Store extends Model
         return $this->hasMany(Notification::class);
     }
 
-    public function payouts(): HasMany
-    {
-        return $this->hasMany(Payout::class);
-    }
-
     public function commissions(): HasMany
     {
-        return $this->hasMany(Commission::class);
+        return $this->hasMany(Commission::class, 'store_id');
     }
 
     public function connectionAttempts(): HasMany
@@ -98,7 +121,7 @@ class Store extends Model
         }
 
         return $query->where(function (Builder $q) use ($term) {
-            $q->where('name', 'like', "%{$term}%")
+            $q->where('store_name', 'like', "%{$term}%")
                 ->orWhere('shop_domain', 'like', "%{$term}%");
         });
     }
@@ -119,13 +142,13 @@ class Store extends Model
         }
 
         return $query->whereHas('modules', function (Builder $q) use ($module) {
-            $q->where('module', $module)->where('status', 'active');
+            $q->where('module_key', $module)->where('is_active', true);
         });
     }
 
     public function getActiveModulesCountAttribute(): int
     {
-        return $this->modules->where('status', 'active')->count();
+        return $this->modules->where('is_active', true)->count();
     }
 
     public function getTotalModulesCountAttribute(): int
@@ -133,37 +156,36 @@ class Store extends Model
         return count(StoreModule::MODULES);
     }
 
+    /** Convenience alias — the real column is store_name. */
+    public function getNameAttribute(): string
+    {
+        return $this->store_name;
+    }
+
     /**
-     * The store's live, public-facing Shopify storefront.
+     * No admin_url column on the real table — this was always a computed
+     * "https://{shop}/admin" guess, never a stored value.
      */
+    public function getAdminUrlAttribute(): string
+    {
+        return "https://{$this->shop_domain}/admin";
+    }
+
     public function getStorefrontUrlAttribute(): string
     {
         return "https://{$this->shop_domain}";
     }
 
-    /**
-     * The store's handle as Shopify uses it in admin URLs — the
-     * shop_domain with the ".myshopify.com" suffix stripped.
-     */
     public function getShopHandleAttribute(): string
     {
         return Str::before($this->shop_domain, '.myshopify.com');
     }
 
-    /**
-     * The BRIX app opened inside this store's Shopify admin — where
-     * "Preview" and "Open module" send the agency to manage BRIX itself.
-     */
     public function getBrixAppUrlAttribute(): string
     {
         return self::brixAppUrlFor($this->shop_domain, '/app');
     }
 
-    /**
-     * The embedded-app launch URL for a known shop domain, for callers
-     * that only have a shop_domain string (e.g. a brix_superadmin-DB
-     * BrixStore row) rather than a local Store instance.
-     */
     public static function brixAppUrlFor(string $shopDomain, string $path = '/app'): string
     {
         $shopHandle = Str::before($shopDomain, '.myshopify.com');
@@ -172,53 +194,54 @@ class Store extends Model
     }
 
     /**
-     * Where "Preview"/"Open module" links should actually go. For a store
-     * that predates the agency-connection feature (agency_relationship_status
-     * is null — seeded/demo data, never verified through a real Shopify
-     * install), brix_app_url is a purely computed guess that may not
-     * exist; admin_url is the one link guaranteed to be real for those.
+     * Where "Preview"/"Open module" links should actually go. A store
+     * with no agency_stores row at all (never went through the
+     * authorization flow — seeded/demo data) falls back to admin_url,
+     * the one link guaranteed to make sense for those.
      */
     public function getSafeAppUrlAttribute(): string
     {
-        return $this->agency_relationship_status === null ? $this->admin_url : $this->brix_app_url;
+        return $this->agencyStore === null ? $this->admin_url : $this->brix_app_url;
     }
 
     /**
      * The commission rate actually applied to this store: its own
-     * override if set, otherwise the agency's default rate.
+     * override if enabled, otherwise the owning agency's default rate.
      */
     public function getEffectiveCommissionRateAttribute(): float
     {
-        if ($this->commission_rate !== null) {
-            return (float) $this->commission_rate;
+        if ($this->commission_override_enabled && $this->commission_override_rate !== null) {
+            return (float) $this->commission_override_rate;
         }
 
-        return (float) ($this->organisation->settings?->default_commission_rate ?? 30);
+        return (float) ($this->agency?->commission_rate ?? 30);
     }
 
     public function getCommissionSourceAttribute(): string
     {
-        return $this->commission_rate !== null ? Commission::SOURCE_CUSTOM : Commission::SOURCE_AGENCY_DEFAULT;
+        return $this->commission_override_enabled ? Commission::SOURCE_CUSTOM : Commission::SOURCE_AGENCY_DEFAULT;
     }
 
     public function getCommissionSourceLabelAttribute(): string
     {
-        return $this->commission_rate !== null ? 'Custom Rate' : 'Agency Rate';
+        return $this->commission_override_enabled ? 'Custom Rate' : 'Agency Rate';
     }
 
     /**
      * The Stores-index badge + primary action for this store's agency
-     * connection state — driven by agency_relationship_status (mirrored
-     * from brix_superadmin's agency_stores.relationship_status) together
-     * with installation_status. See resources/views/components/store-card.blade.php.
+     * connection state — driven by the live agencyStore relationship
+     * together with installation_status.
      */
     public function getConnectionBadgeAttribute(): array
     {
-        // Predates this feature (seeded/demo stores, or anything created
-        // before the agency_stores relationship existed) — fall back to
-        // the original status-driven badge rather than mislabelling an
-        // already-working store as needing installation.
-        if ($this->agency_relationship_status === null) {
+        $relationshipStatus = $this->agencyStore?->relationship_status;
+
+        // No agency_stores row at all — predates this feature
+        // (seeded/demo stores, or anything created before the agency
+        // authorization flow existed). Fall back to the original
+        // status-driven badge rather than mislabelling an already-working
+        // store as needing installation.
+        if ($relationshipStatus === null) {
             return ['label' => ucfirst($this->status), 'status' => $this->status];
         }
 
@@ -226,7 +249,7 @@ class Store extends Model
             return ['label' => 'Uninstalled', 'status' => 'offline'];
         }
 
-        return match ($this->agency_relationship_status) {
+        return match ($relationshipStatus) {
             'ACTIVE' => ['label' => 'Active', 'status' => 'active'],
             'AUTHORIZED' => ['label' => 'Authorized', 'status' => 'attention'],
             'PENDING' => ['label' => 'Pending Authorization', 'status' => 'attention'],
@@ -237,15 +260,17 @@ class Store extends Model
 
     public function getConnectionActionAttribute(): array
     {
-        if ($this->agency_relationship_status === null) {
+        $relationshipStatus = $this->agencyStore?->relationship_status;
+
+        if ($relationshipStatus === null) {
             return ['label' => 'Open Store', 'route' => null];
         }
 
-        if ($this->installation_status === 'UNINSTALLED' || $this->agency_relationship_status === 'DISCONNECTED') {
+        if ($this->installation_status === 'UNINSTALLED' || $relationshipStatus === 'DISCONNECTED') {
             return ['label' => 'Reconnect', 'route' => 'stores.reconnect'];
         }
 
-        return match ($this->agency_relationship_status) {
+        return match ($relationshipStatus) {
             'ACTIVE' => ['label' => 'Open Store', 'route' => null],
             'AUTHORIZED' => ['label' => 'Activate', 'route' => 'stores.activate'],
             'PENDING' => ['label' => 'Continue', 'route' => 'stores.authorize'],

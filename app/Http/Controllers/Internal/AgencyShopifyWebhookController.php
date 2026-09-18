@@ -4,12 +4,11 @@ namespace App\Http\Controllers\Internal;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Internal\Concerns\AuthorizesInternalWebhook;
-use App\Models\Brix\Agency;
-use App\Models\Brix\ActivityLog as BrixActivityLog;
-use App\Models\Brix\AgencyStore;
-use App\Models\Brix\AgencyStoreOnboarding;
-use App\Models\Brix\Store as BrixStore;
-use App\Models\Organisation;
+use App\Models\Partners\ActivityLog as BrixActivityLog;
+use App\Models\Partners\AgencyStore;
+use App\Models\Partners\AgencyStoreOnboarding;
+use App\Models\Partners\Partner;
+use App\Models\Store;
 use App\Services\Brix\LocalStoreSync;
 use App\Services\Brix\StoreAuthorization;
 use App\Services\Brix\StoreInstallationSync;
@@ -21,19 +20,12 @@ use Illuminate\Support\Facades\URL;
 /**
  * Server-to-server only. Called by whichever PHP app actually owns the
  * live Shopify OAuth flow (install_shop.php / uninstall_shop.php) over
- * HTTP, the same way Internal\ShopifyWebhookController already is for
- * this app's local `stores` table — this is the brix_superadmin-backed
- * counterpart, kept as a *separate* endpoint rather than changed in
- * place so the existing integration (if anything still calls it) keeps
- * working unmodified.
- *
- * Authenticated by the same shared secret header, not a logged-in
+ * HTTP. Authenticated by the same shared secret header, not a logged-in
  * session — there is no Laravel session for a server-to-server call.
  *
  * This controller NEVER performs Shopify OAuth. It only records what
- * already happened on Shopify's side into brix_superadmin, matching
- * against a pending agency_store_onboarding row to know which agency the
- * install belongs to.
+ * already happened on Shopify's side, matching against a pending
+ * agency_store_onboarding row to know which agency the install belongs to.
  */
 class AgencyShopifyWebhookController extends Controller
 {
@@ -64,12 +56,12 @@ class AgencyShopifyWebhookController extends Controller
         }
 
         $agencyId = $onboarding->agency_id;
-        $brixStore = BrixStore::where('shop_domain', $shopDomain)->first();
+        $store = Store::where('shop_domain', $shopDomain)->first();
 
-        if ($brixStore && (int) $brixStore->agency_id !== (int) $agencyId) {
+        if ($store && (int) $store->agency_id !== (int) $agencyId) {
             $onboarding->update(['status' => 'FAILED', 'failure_reason' => 'Store already connected to another agency.']);
 
-            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agencyId, $brixStore->id, [
+            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agencyId, $store->id, [
                 'shop_domain' => $shopDomain,
                 'reason' => 'cross_agency_reinstall',
             ]);
@@ -110,33 +102,30 @@ class AgencyShopifyWebhookController extends Controller
         ]);
 
         $shopDomain = strtolower($validated['shop_domain']);
-        $brixStore = BrixStore::where('shop_domain', $shopDomain)->first();
+        $store = Store::where('shop_domain', $shopDomain)->first();
 
-        if (! $brixStore) {
+        if (! $store) {
             return response()->json(['success' => true, 'message' => 'Unknown store; nothing to disconnect.']);
         }
 
-        DB::connection('agency')->transaction(function () use ($brixStore) {
+        DB::transaction(function () use ($store) {
             // Status fields only — never delete the row or its ledger/
             // commission/payout/activity-log history.
-            $brixStore->update([
+            $store->update([
                 'installation_status' => 'UNINSTALLED',
                 'authorization_status' => 'REVOKED',
                 'uninstalled_at' => now(),
             ]);
 
-            AgencyStore::where('store_id', $brixStore->id)
+            AgencyStore::where('store_id', $store->id)
                 ->whereIn('relationship_status', ['PENDING', 'AUTHORIZED', 'ACTIVE'])
                 ->get()
                 ->each(fn (AgencyStore $rel) => $rel->update(['relationship_status' => 'DISCONNECTED', 'disconnected_at' => now()]));
         });
 
-        $organisation = Organisation::where('brix_agency_id', $brixStore->agency_id)->first();
-        if ($organisation) {
-            LocalStoreSync::sync($organisation, $brixStore->refresh(), 'DISCONNECTED');
-        }
+        LocalStoreSync::touch($store->refresh(), 'DISCONNECTED');
 
-        BrixActivityLog::record('STORE_DISCONNECTED', $brixStore->agency_id, $brixStore->id, [
+        BrixActivityLog::record('STORE_DISCONNECTED', $store->agency_id, $store->id, [
             'shop_domain' => $shopDomain,
         ]);
 
@@ -158,14 +147,14 @@ class AgencyShopifyWebhookController extends Controller
         ]);
 
         $shopDomain = strtolower($validated['shop_domain']);
-        $brixStore = BrixStore::where('shop_domain', $shopDomain)->first();
+        $store = Store::where('shop_domain', $shopDomain)->first();
 
-        if (! $brixStore || $brixStore->installation_status !== 'INSTALLED') {
+        if (! $store || $store->installation_status !== 'INSTALLED') {
             return response()->json(['success' => true, 'data' => ['stage' => 'NOT_INSTALLED', 'shop_domain' => $shopDomain]]);
         }
 
-        $relationship = AgencyStore::where('agency_id', $brixStore->agency_id)->where('store_id', $brixStore->id)->first();
-        $agencyName = Agency::find($brixStore->agency_id)?->name;
+        $relationship = AgencyStore::where('agency_id', $store->agency_id)->where('store_id', $store->id)->first();
+        $agencyName = Partner::find($store->agency_id)?->name;
 
         $stage = match ($relationship?->relationship_status) {
             'ACTIVE' => 'COMPLETE',
@@ -185,7 +174,7 @@ class AgencyShopifyWebhookController extends Controller
      * StoreConnectionController::authorize(), triggered by a merchant
      * inside their own Shopify admin instead of an agency user in their
      * dashboard. agency_id is derived only from the shop-domain-matched
-     * BrixStore row, never from request input — the caller (cartdrawerv2_ui)
+     * Store row, never from request input — the caller (cartdrawerv2_ui)
      * only ever supplies the shop_domain it already verified via Shopify's
      * own authenticated session.
      */
@@ -198,23 +187,20 @@ class AgencyShopifyWebhookController extends Controller
         ]);
 
         $shopDomain = strtolower($validated['shop_domain']);
-        $brixStore = BrixStore::where('shop_domain', $shopDomain)->first();
+        $store = Store::where('shop_domain', $shopDomain)->first();
 
-        if (! $brixStore || $brixStore->installation_status !== 'INSTALLED') {
+        if (! $store || $store->installation_status !== 'INSTALLED') {
             return response()->json(['success' => false, 'message' => 'BRIX installation is required.'], 422);
         }
 
-        $agencyId = $brixStore->agency_id;
-        $organisation = Organisation::where('brix_agency_id', $agencyId)->first();
+        $agencyId = $store->agency_id;
 
-        [$relationshipStatus, $justAuthorized] = StoreAuthorization::authorize($brixStore, $agencyId);
+        [$relationshipStatus, $justAuthorized] = StoreAuthorization::authorize($store, $agencyId);
 
-        if ($organisation) {
-            LocalStoreSync::sync($organisation, $brixStore, $relationshipStatus);
-        }
+        LocalStoreSync::touch($store, $relationshipStatus);
 
         if ($justAuthorized) {
-            BrixActivityLog::record('STORE_AUTHORIZED', $agencyId, $brixStore->id, [
+            BrixActivityLog::record('STORE_AUTHORIZED', $agencyId, $store->id, [
                 'shop_domain' => $shopDomain,
                 'initiated_by' => 'merchant_shopify_admin',
             ]);
@@ -239,41 +225,30 @@ class AgencyShopifyWebhookController extends Controller
         ]);
 
         $shopDomain = strtolower($validated['shop_domain']);
-        $brixStore = BrixStore::where('shop_domain', $shopDomain)->first();
+        $store = Store::where('shop_domain', $shopDomain)->first();
 
-        if (! $brixStore || $brixStore->installation_status !== 'INSTALLED') {
+        if (! $store || $store->installation_status !== 'INSTALLED') {
             return response()->json(['success' => false, 'message' => 'BRIX installation could not be verified.'], 422);
         }
 
-        $agencyId = $brixStore->agency_id;
-        $organisation = Organisation::where('brix_agency_id', $agencyId)->first();
+        $agencyId = $store->agency_id;
 
         try {
-            $justActivated = StoreAuthorization::activate($brixStore, $agencyId);
+            $justActivated = StoreAuthorization::activate($store, $agencyId);
         } catch (\RuntimeException $e) {
             return response()->json(['success' => false, 'message' => 'Store must be authorized before activation.'], 409);
         }
 
-        $local = $organisation
-            ? LocalStoreSync::sync($organisation, $brixStore, 'ACTIVE')
-            : null;
+        LocalStoreSync::touch($store, 'ACTIVE');
 
         if ($justActivated) {
-            BrixActivityLog::record('STORE_ACTIVATED', $agencyId, $brixStore->id, [
+            BrixActivityLog::record('STORE_ACTIVATED', $agencyId, $store->id, [
                 'shop_domain' => $shopDomain,
                 'initiated_by' => 'merchant_shopify_admin',
             ]);
         }
 
-        if (! $local) {
-            // No local Organisation row exists for this agency — can't
-            // build a meaningful success page link. The Shopify-side
-            // state is still correctly ACTIVE; this is a data setup gap,
-            // not a failure of the activation itself.
-            return response()->json(['success' => true, 'data' => ['redirect_url' => null]]);
-        }
-
-        $redirectUrl = URL::temporarySignedRoute('public.stores.connect.success', now()->addMinutes(60), ['store' => $local->id]);
+        $redirectUrl = URL::temporarySignedRoute('public.stores.connect.success', now()->addMinutes(60), ['store' => $store->id]);
 
         return response()->json(['success' => true, 'data' => ['redirect_url' => $redirectUrl]]);
     }

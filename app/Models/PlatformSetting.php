@@ -2,25 +2,30 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
- * Platform-wide finance settings — controlled by BRIX, not the agency.
- * Single row; use PlatformSetting::current() rather than querying directly.
+ * Platform-wide finance settings — controlled by BRIX, not the partner.
+ * Backed by the real, admin-controlled `app_settings` key-value store
+ * rather than a dedicated table. Use PlatformSetting::current() rather
+ * than reading app_settings directly.
  */
-class PlatformSetting extends Model
+class PlatformSetting
 {
-    protected $fillable = [
-        'minimum_payout_amount',
-        'commission_holding_period_days',
-    ];
-
-    protected $casts = [
-        'minimum_payout_amount' => 'decimal:2',
-    ];
+    public function __construct(
+        public readonly float $minimum_payout_amount,
+        public readonly int $commission_holding_period_days,
+    ) {}
 
     public static function current(): self
     {
-        return static::query()->firstOrCreate(['id' => 1]);
+        $rows = DB::table('app_settings')
+            ->whereIn('setting_key', ['minimum_payout_amount', 'commission_holding_period_days'])
+            ->pluck('value', 'setting_key');
+
+        return new self(
+            minimum_payout_amount: (float) ($rows['minimum_payout_amount'] ?? 1000),
+            commission_holding_period_days: (int) ($rows['commission_holding_period_days'] ?? 7),
+        );
     }
 }

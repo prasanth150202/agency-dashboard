@@ -18,11 +18,13 @@ class StorePolicy
     {
         $organisationId = session('organisation_id');
 
-        if ($organisationId === null || (int) $organisationId !== $store->organisation_id) {
+        if ($organisationId === null) {
             return false;
         }
 
-        return $user->organisations()->whereKey($organisationId)->exists();
+        $organisation = $user->organisations()->whereKey($organisationId)->first();
+
+        return $organisation !== null && (int) $organisation->brix_agency_id === (int) $store->agency_id;
     }
 
     public function update(User $user, Store $store): bool

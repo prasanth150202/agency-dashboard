@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Organisation;
 use App\Models\Payout;
-use App\Models\Store;
 use App\Models\StoreModule;
 use App\Support\Metrics;
 use Illuminate\Http\Request;
@@ -20,7 +19,7 @@ class DashboardController extends Controller
         $range = (int) $request->query('range', 7);
         $range = in_array($range, [7, 30, 90], true) ? $range : 7;
 
-        $storesQuery = Store::where('organisation_id', $organisation->id);
+        $storesQuery = $organisation->stores();
 
         $totalStores = (clone $storesQuery)->count();
         $activeStores = (clone $storesQuery)->where('status', 'active')->count();
@@ -36,18 +35,18 @@ class DashboardController extends Controller
 
         $monthlyRevenue = $finance->thisMonthEarnings();
 
-        $lastMonthRevenue = \App\Models\Commission::where('organisation_id', $organisation->id)
-            ->whereBetween('transaction_date', [$startOfLastMonth, $endOfLastMonth])
-            ->sum('commission_amount');
+        $lastMonthRevenue = $organisation->commissions()
+            ->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])
+            ->sum('agency_commission');
 
         $pendingPayout = $finance->pendingPayouts() + $finance->processingPayouts();
 
         $periodStart = Carbon::now()->subDays($range * 2);
         $periodEnd = Carbon::now()->subDays($range);
 
-        $pendingPayoutPreviousPeriod = Payout::where('organisation_id', $organisation->id)
+        $pendingPayoutPreviousPeriod = $organisation->payouts()
             ->whereIn('status', Payout::RESERVING_STATUSES)
-            ->whereBetween('date', [$periodStart, $periodEnd])
+            ->whereBetween('requested_at', [$periodStart, $periodEnd])
             ->sum('amount');
 
         $metrics = [
@@ -73,7 +72,7 @@ class DashboardController extends Controller
             ],
         ];
 
-        $recentStores = Store::where('organisation_id', $organisation->id)
+        $recentStores = $organisation->stores()
             ->with('modules')
             ->orderByDesc('last_active_at')
             ->limit(5)
@@ -86,9 +85,9 @@ class DashboardController extends Controller
         ];
 
         $moduleAdoption = collect(StoreModule::MODULES)->map(function (string $label, string $key) use ($organisation, $totalStores) {
-            $count = StoreModule::where('module', $key)
-                ->where('status', 'active')
-                ->whereHas('store', fn ($q) => $q->where('organisation_id', $organisation->id))
+            $count = StoreModule::where('module_key', $key)
+                ->where('is_active', true)
+                ->whereHas('store', fn ($q) => $q->where('agency_id', $organisation->brix_agency_id))
                 ->count();
 
             return [

@@ -16,26 +16,26 @@ class StoreModuleController extends Controller
         abort_unless(array_key_exists($module, StoreModule::MODULES), 404);
 
         $storeModule = $store->modules()->firstOrCreate(
-            ['module' => $module],
-            ['status' => 'inactive']
+            ['module_key' => $module],
+            ['module_name' => StoreModule::MODULES[$module], 'is_active' => false]
         );
 
-        $newStatus = $storeModule->status === 'active' ? 'inactive' : 'active';
+        $newActive = ! $storeModule->is_active;
 
         $storeModule->update([
-            'status' => $newStatus,
+            'is_active' => $newActive,
             'last_updated_at' => now(),
         ]);
 
         $label = StoreModule::MODULES[$module];
-        $message = $newStatus === 'active'
+        $message = $newActive
             ? "{$label} activated for {$store->name}."
             : "{$label} disabled for {$store->name}.";
 
         $store->organisation->notifications()->create([
             'store_id' => $store->id,
             'type' => 'module_activated',
-            'title' => $newStatus === 'active' ? 'Module activated' : 'Module disabled',
+            'title' => $newActive ? 'Module activated' : 'Module disabled',
             'message' => $message,
         ]);
 

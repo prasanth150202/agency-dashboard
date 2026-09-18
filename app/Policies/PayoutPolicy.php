@@ -16,10 +16,12 @@ class PayoutPolicy
     {
         $organisationId = session('organisation_id');
 
-        if ($organisationId === null || (int) $organisationId !== $payout->organisation_id) {
+        if ($organisationId === null) {
             return false;
         }
 
-        return $user->organisations()->whereKey($organisationId)->exists();
+        $organisation = $user->organisations()->whereKey($organisationId)->first();
+
+        return $organisation !== null && (int) $organisation->brix_agency_id === (int) $payout->agency_id;
     }
 }

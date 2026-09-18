@@ -35,6 +35,12 @@ class SetCurrentOrganisation
             }
         }
 
+        // Every stores/payouts/commissions/ledger query downstream is
+        // keyed off brix_agency_id, not this row's own id — resolve
+        // (and auto-provision, on first use) the bridge once per request
+        // so those relations never silently run against a null key.
+        $current?->brixAgency();
+
         $request->attributes->set('currentOrganisation', $current);
         app()->instance('currentOrganisation', $current);
 

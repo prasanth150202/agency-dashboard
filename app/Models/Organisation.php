@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Brix\Agency as BrixAgency;
+use App\Models\Partners\Partner;
 use App\Services\AgencyFinanceService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,7 +21,7 @@ class Organisation extends Model
         'website',
     ];
 
-    private ?BrixAgency $brixAgencyCache = null;
+    private ?Partner $partnerCache = null;
 
     protected static function booted(): void
     {
@@ -52,9 +52,15 @@ class Organisation extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Every relation below is keyed through brix_agency_id -> agencies.id
+     * (agency_id on the related table), not this row's own `id` — the
+     * real schema's stores/payouts/transactions/agency_ledger all belong
+     * to an `agencies` row directly, never to `organisations`.
+     */
     public function stores(): HasMany
     {
-        return $this->hasMany(Store::class);
+        return $this->hasMany(Store::class, 'agency_id', 'brix_agency_id');
     }
 
     public function settings(): HasOne
@@ -69,22 +75,22 @@ class Organisation extends Model
 
     public function payouts(): HasMany
     {
-        return $this->hasMany(Payout::class);
+        return $this->hasMany(Payout::class, 'agency_id', 'brix_agency_id');
     }
 
     public function commissions(): HasMany
     {
-        return $this->hasMany(Commission::class);
+        return $this->hasMany(Commission::class, 'agency_id', 'brix_agency_id');
     }
 
     public function payoutAccount(): HasOne
     {
-        return $this->hasOne(PayoutAccount::class);
+        return $this->hasOne(PayoutAccount::class, 'agency_id', 'brix_agency_id')->where('is_default', true);
     }
 
     public function ledgerEntries(): HasMany
     {
-        return $this->hasMany(AgencyLedger::class);
+        return $this->hasMany(AgencyLedger::class, 'agency_id', 'brix_agency_id');
     }
 
     public function finance(): AgencyFinanceService
@@ -104,38 +110,43 @@ class Organisation extends Model
     }
 
     /**
-     * The real agency record in brix_superadmin that this organisation's
+     * The real partner record (agencies) that this organisation's
      * login/session is bridged to. Auto-provisions one on first use
-     * (findOrCreate by brix_agency_id, falling back to creating a fresh
+     * (find by brix_agency_id, falling back to creating a fresh
      * `agencies` row) — no manual setup step required. This is the only
      * place organisations.brix_agency_id is read or written.
      */
-    public function brixAgency(): BrixAgency
+    public function brixAgency(): Partner
     {
-        if ($this->brixAgencyCache) {
-            return $this->brixAgencyCache;
+        return $this->partner();
+    }
+
+    public function partner(): Partner
+    {
+        if ($this->partnerCache) {
+            return $this->partnerCache;
         }
 
         if ($this->brix_agency_id) {
-            $agency = BrixAgency::find($this->brix_agency_id);
+            $partner = Partner::find($this->brix_agency_id);
 
-            if ($agency) {
-                return $this->brixAgencyCache = $agency;
+            if ($partner) {
+                return $this->partnerCache = $partner;
             }
         }
 
         $owner = $this->users()->first();
 
-        $agency = BrixAgency::create([
+        $partner = Partner::create([
             'name' => $this->name,
-            'slug' => BrixAgency::uniqueSlug($this->slug ?: $this->name),
+            'slug' => Partner::uniqueSlug($this->slug ?: $this->name),
             'owner_name' => $owner->name ?? $this->name,
             'owner_email' => $owner->email ?? Str::slug($this->name).'@unknown.local',
             'status' => 'active',
         ]);
 
-        $this->forceFill(['brix_agency_id' => $agency->id])->save();
+        $this->forceFill(['brix_agency_id' => $partner->id])->save();
 
-        return $this->brixAgencyCache = $agency;
+        return $this->partnerCache = $partner;
     }
 }

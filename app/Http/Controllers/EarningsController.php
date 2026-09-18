@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Commission;
 use App\Models\Organisation;
-use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -33,10 +32,9 @@ class EarningsController extends Controller
 
         [$rangeStart, $rangeEnd] = $this->resolveDateRange($filters['range']);
 
-        $commissions = Commission::query()
-            ->where('organisation_id', $organisation->id)
+        $commissions = $organisation->commissions()
             ->with(['store', 'payouts'])
-            ->when($rangeStart, fn ($q) => $q->whereBetween('transaction_date', [$rangeStart, $rangeEnd]))
+            ->when($rangeStart, fn ($q) => $q->whereBetween('created_at', [$rangeStart, $rangeEnd]))
             ->when($filters['store'] !== 'all', fn ($q) => $q->where('store_id', $filters['store']))
             ->when(! empty($filters['search']), function ($q) use ($filters) {
                 $term = $filters['search'];
@@ -50,14 +48,14 @@ class EarningsController extends Controller
                     if ($numericId > 0) {
                         $q2->orWhere('id', $numericId);
                     }
-                    $q2->orWhere('commission_amount', 'like', "%{$term}%")
+                    $q2->orWhere('agency_commission', 'like', "%{$term}%")
                         ->orWhere('gross_amount', 'like', "%{$term}%")
                         ->orWhereHas('store', function ($q3) use ($term) {
-                            $q3->where('name', 'like', "%{$term}%")->orWhere('shop_domain', 'like', "%{$term}%");
+                            $q3->where('store_name', 'like', "%{$term}%")->orWhere('shop_domain', 'like', "%{$term}%");
                         });
                 });
             })
-            ->orderByDesc('transaction_date')
+            ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
             // Status filtering happens on visual_status (display-only —
@@ -75,15 +73,15 @@ class EarningsController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        $myStores = Store::where('organisation_id', $organisation->id)
+        $myStores = $organisation->stores()
             ->withSum(['commissions as commission_total' => function ($q) {
-                $q->where('status', '!=', Commission::STATUS_REFUNDED);
-            }], 'commission_amount')
+                $q->where('commission_status', '!=', Commission::STATUS_REFUNDED);
+            }], 'agency_commission')
             ->orderByDesc('commission_total')
             ->limit(8)
             ->get();
 
-        $stores = Store::where('organisation_id', $organisation->id)->orderBy('name')->get(['id', 'name']);
+        $stores = $organisation->stores()->orderBy('store_name')->get(['id', 'store_name', 'agency_id']);
 
         return view('earnings.index', [
             'organisation' => $organisation,
@@ -111,11 +109,10 @@ class EarningsController extends Controller
 
         [$rangeStart, $rangeEnd] = $this->resolveDateRange($request->query('range', 'all_time'));
 
-        $commissions = Commission::query()
-            ->where('organisation_id', $organisation->id) // never trust anything but the session-scoped org
+        $commissions = $organisation->commissions() // never trust anything but the session-scoped org
             ->with('store')
-            ->when($rangeStart, fn ($q) => $q->whereBetween('transaction_date', [$rangeStart, $rangeEnd]))
-            ->orderByDesc('transaction_date')
+            ->when($rangeStart, fn ($q) => $q->whereBetween('created_at', [$rangeStart, $rangeEnd]))
+            ->orderByDesc('created_at')
             ->get();
 
         $filename = 'brix-commissions-'.now()->format('Y-m-d').'.csv';
@@ -130,7 +127,7 @@ class EarningsController extends Controller
                     $commission->store->name,
                     $commission->gross_amount,
                     $commission->commission_rate.'%',
-                    $commission->commission_amount,
+                    $commission->agency_commission,
                     $commission->transaction_date->format('Y-m-d'),
                     $commission->status_label,
                 ]);

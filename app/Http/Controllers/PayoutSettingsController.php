@@ -24,7 +24,8 @@ class PayoutSettingsController extends Controller
     /**
      * Validated entirely server-side, per method — client-side checks are
      * a convenience only. Full account numbers are never stored in
-     * plaintext (see PayoutAccount::$casts) and never redisplayed.
+     * plaintext by this app (see PayoutAccount::$casts) and never
+     * redisplayed.
      */
     public function store(Request $request): RedirectResponse
     {
@@ -46,29 +47,30 @@ class PayoutSettingsController extends Controller
         ]);
 
         $payload = [
-            'method' => $method,
+            'type' => $method,
+            'is_default' => true,
             // Any change to payout details requires re-verification.
-            'verification_status' => PayoutAccount::STATUS_PENDING_VERIFICATION,
+            'verification_status' => PayoutAccount::STATUS_PENDING,
         ];
 
         if ($method === PayoutAccount::METHOD_BANK_TRANSFER) {
             $payload['account_holder_name'] = $validated['account_holder_name'];
-            $payload['account_number'] = $validated['account_number'];
+            $payload['bank_account_number_encrypted'] = $validated['account_number'];
             $payload['account_last4'] = substr($validated['account_number'], -4);
-            $payload['ifsc_code'] = strtoupper($validated['ifsc_code']);
+            $payload['bank_ifsc'] = strtoupper($validated['ifsc_code']);
             $payload['account_type'] = $validated['account_type'];
-            $payload['upi_id'] = null;
+            $payload['upi_vpa'] = null;
         } else {
-            $payload['upi_id'] = $validated['upi_id'];
+            $payload['upi_vpa'] = $validated['upi_id'];
             $payload['account_holder_name'] = null;
-            $payload['account_number'] = null;
+            $payload['bank_account_number_encrypted'] = null;
             $payload['account_last4'] = null;
-            $payload['ifsc_code'] = null;
+            $payload['bank_ifsc'] = null;
             $payload['account_type'] = null;
         }
 
         PayoutAccount::updateOrCreate(
-            ['organisation_id' => $organisation->id],
+            ['agency_id' => $organisation->brix_agency_id, 'is_default' => true],
             $payload
         );
 

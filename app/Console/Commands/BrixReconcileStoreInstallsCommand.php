@@ -2,8 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Brix\AgencyStoreOnboarding;
-use App\Models\Brix\Store as BrixStore;
+use App\Models\Partners\AgencyStoreOnboarding;
+use App\Models\Store as BrixStore;
 use App\Services\Brix\BrixInstallCheck;
 use App\Services\Brix\StoreInstallationSync;
 use Illuminate\Console\Command;

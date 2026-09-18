@@ -5,27 +5,36 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * The real, canonical `store_modules` table. Real data only ever
+ * populates six modules (module_key values below) — the old local-only
+ * list also had Wishlist/Trust Badges/Sticky Add to Cart, which never
+ * appear in live data and are dropped here as not actually shipped
+ * features.
+ */
 class StoreModule extends Model
 {
+    public $timestamps = false;
+
     public const MODULES = [
         'cart_drawer' => 'Cart Drawer',
-        'fbt' => 'Frequently Bought Together',
-        'coupon' => 'Coupon',
-        'upsell' => 'Upsell',
+        'fbt' => 'FBT',
+        'coupon' => 'Coupons',
+        'upsell' => 'Upsells',
         'progress_bar' => 'Progress Bar',
-        'sticky_add_to_cart' => 'Sticky Add to Cart',
-        'wishlist' => 'Wishlist',
-        'trust_badges' => 'Trust Badges',
+        'ai_brix' => 'AI BRIX',
     ];
 
     protected $fillable = [
         'store_id',
-        'module',
-        'status',
+        'module_name',
+        'module_key',
+        'is_active',
         'last_updated_at',
     ];
 
     protected $casts = [
+        'is_active' => 'boolean',
         'last_updated_at' => 'datetime',
     ];
 
@@ -34,13 +43,20 @@ class StoreModule extends Model
         return $this->belongsTo(Store::class);
     }
 
-    public function getLabelAttribute(): string
+    /** Convenience alias — old code refers to this as `module`. */
+    public function getModuleAttribute(): string
     {
-        return self::MODULES[$this->module] ?? $this->module;
+        return $this->module_key;
     }
 
-    public function getIsActiveAttribute(): bool
+    public function getLabelAttribute(): string
     {
-        return $this->status === 'active';
+        return self::MODULES[$this->module_key] ?? $this->module_name;
+    }
+
+    /** Convenience alias — old code refers to this as `status`. */
+    public function getStatusAttribute(): string
+    {
+        return $this->is_active ? 'active' : 'inactive';
     }
 }

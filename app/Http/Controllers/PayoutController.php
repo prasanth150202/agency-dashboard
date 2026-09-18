@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Commission;
 use App\Models\Organisation;
 use App\Models\Payout;
-use App\Models\PayoutAccount;
 use App\Support\Currency;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -22,7 +21,7 @@ class PayoutController extends Controller
         $organisation = $request->attributes->get('currentOrganisation');
         $finance = $organisation->finance();
 
-        $transactions = Payout::where('organisation_id', $organisation->id)
+        $transactions = $organisation->payouts()
             ->orderByDesc('requested_at')
             ->orderByDesc('id')
             ->paginate(10);
@@ -82,9 +81,10 @@ class PayoutController extends Controller
 
         try {
             $payout = DB::transaction(function () use ($organisation, $account, $requestedAmount, $currency) {
-                // Lock this agency's row for the duration of the check +
-                // insert. Concurrent requests for *other* agencies are
-                // completely unaffected — only this one row serializes.
+                // Lock this organisation's row for the duration of the
+                // check + insert. Concurrent requests for *other*
+                // agencies are completely unaffected — only this one row
+                // serializes.
                 $locked = Organisation::whereKey($organisation->id)->lockForUpdate()->first();
                 $finance = $locked->finance();
 
@@ -110,7 +110,7 @@ class PayoutController extends Controller
                 // construction, but claiming directly means the payout is
                 // never created from a stale/racing read of the balance.
                 $claimed = $finance->claimCommissionsForPayout($requestedAmount);
-                $claimedSum = round((float) $claimed->sum('commission_amount'), 2);
+                $claimedSum = round((float) $claimed->sum('agency_commission'), 2);
 
                 if ($claimedSum < $requestedAmount) {
                     throw new RuntimeException('Amount cannot exceed your available balance.');
@@ -125,21 +125,19 @@ class PayoutController extends Controller
                 // would strand the 2,000 difference the moment this
                 // payout is paid.
                 $payout = Payout::create([
-                    'organisation_id' => $locked->id,
-                    'date' => now()->toDateString(),
-                    'description' => 'Payout requested',
+                    'agency_id' => $locked->brix_agency_id,
+                    'notes' => 'Payout requested',
                     'amount' => $claimedSum,
                     'currency' => $currency,
                     'status' => Payout::STATUS_PENDING,
-                    'payment_method' => $account->method,
+                    'payment_method' => $account->method_label,
                     'payout_account_id' => $account->id,
-                    'provider' => 'manual',
                     'requested_at' => now(),
                 ]);
 
                 foreach ($claimed as $commission) {
-                    $payout->commissions()->attach($commission->id, ['amount' => $commission->commission_amount]);
-                    $commission->update(['status' => Commission::STATUS_IN_PAYOUT]);
+                    $payout->commissions()->attach($commission->id, ['amount' => $commission->agency_commission]);
+                    $commission->update(['commission_status' => Commission::STATUS_IN_PAYOUT]);
                 }
 
                 return $payout;
@@ -170,7 +168,7 @@ class PayoutController extends Controller
     {
         Gate::authorize('view', $payout);
 
-        $payout->load('payoutAccount', 'store', 'commissions.store');
+        $payout->load('payoutAccount', 'commissions.store');
 
         return view('payouts.show', [
             'payout' => $payout,

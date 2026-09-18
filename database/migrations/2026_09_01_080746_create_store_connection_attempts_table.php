@@ -17,7 +17,11 @@ return new class extends Migration
             // or FAILED/EXPIRED at any point.
             $table->string('status')->default('STARTED');
             $table->string('failure_reason')->nullable();
-            $table->foreignId('store_id')->nullable()->constrained()->nullOnDelete();
+            // stores.id is `int unsigned` in the real (merged) schema, not
+            // Laravel's default bigint — foreignId()->constrained() would
+            // create a mismatched column type and fail the FK constraint.
+            $table->unsignedInteger('store_id')->nullable();
+            $table->foreign('store_id')->references('id')->on('stores')->nullOnDelete();
             $table->timestamp('expires_at');
             $table->timestamps();
 

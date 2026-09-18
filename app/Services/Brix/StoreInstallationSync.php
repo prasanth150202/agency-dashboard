@@ -2,17 +2,16 @@
 
 namespace App\Services\Brix;
 
-use App\Models\Brix\ActivityLog as BrixActivityLog;
-use App\Models\Brix\AgencyStore;
-use App\Models\Brix\Store as BrixStore;
-use App\Models\Organisation;
+use App\Models\Partners\ActivityLog as BrixActivityLog;
+use App\Models\Partners\AgencyStore;
+use App\Models\Store as BrixStore;
+use App\Models\StoreModule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Records a completed Shopify install of BRIX into brix_superadmin —
- * stores.installation_status = INSTALLED, plus a PENDING agency_stores
- * relationship — and mirrors it onto this app's local stores table.
+ * Records a completed Shopify install of BRIX — stores.installation_status
+ * = INSTALLED, plus a PENDING agency_stores relationship.
  *
  * One code path, shared by:
  *  - the install webhook (AgencyShopifyWebhookController::storeInstalled),
@@ -64,9 +63,17 @@ class StoreInstallationSync
                 'installed_at' => now(),
                 'last_active_at' => now(),
             ]);
+
+            foreach (StoreModule::MODULES as $key => $label) {
+                $brixStore->modules()->create([
+                    'module_key' => $key,
+                    'module_name' => $label,
+                    'is_active' => false,
+                ]);
+            }
         }
 
-        $relationshipStatus = DB::connection('agency')->transaction(function () use ($agencyId, $brixStore) {
+        $relationshipStatus = DB::transaction(function () use ($agencyId, $brixStore) {
             $relationship = AgencyStore::where('agency_id', $agencyId)
                 ->where('store_id', $brixStore->id)
                 ->lockForUpdate()
@@ -86,10 +93,7 @@ class StoreInstallationSync
             return $relationship->relationship_status;
         });
 
-        $organisation = Organisation::where('brix_agency_id', $agencyId)->first();
-        if ($organisation) {
-            LocalStoreSync::sync($organisation, $brixStore->refresh(), $relationshipStatus);
-        }
+        LocalStoreSync::touch($brixStore->refresh(), $relationshipStatus);
 
         BrixActivityLog::record('STORE_INSTALLATION_DETECTED', $agencyId, $brixStore->id, [
             'shop_domain' => $shopDomain,

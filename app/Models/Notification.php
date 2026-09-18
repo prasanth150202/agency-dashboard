@@ -6,9 +6,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * `partner_notifications` — alerts shown to a partner (store connected,
+ * payout paid, ...). Distinct from the real `notifications` table, which
+ * is admin_user_id-scoped (the admin dashboard's own bell icon).
+ */
 class Notification extends Model
 {
     use HasFactory;
+
+    protected $table = 'partner_notifications';
 
     protected $fillable = [
         'organisation_id',

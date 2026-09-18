@@ -9,11 +9,13 @@ use App\Models\PlatformSetting;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
-/** 
- * The single source of truth for every agency balance figure shown in
+/**
+ * The single source of truth for every partner balance figure shown in
  * the dashboard. Every number here is computed fresh from commissions
- * and payouts on each call — nothing is trusted from a stored/mutable
- * "balance" column, and nothing is ever trusted from the browser.
+ * (transactions) and payouts on each call — nothing is trusted from a
+ * stored/mutable "balance" column, and nothing is ever trusted from the
+ * browser. All queries go through Organisation::commissions()/payouts(),
+ * which are keyed via brix_agency_id -> agencies.id.
  */
 class AgencyFinanceService
 {
@@ -28,17 +30,15 @@ class AgencyFinanceService
      * column hasn't been flipped by a background job yet. Once a payout
      * claims a commission (see claimCommissionsForPayout()), that
      * commission's status moves to IN_PAYOUT/PAID and this sum already
-     * excludes it — so, unlike before commission-level claiming existed,
-     * this must NOT also subtract reservedForPendingPayouts()/paid
-     * payout totals, or a claimed commission's value would be counted
-     * as "reserved" twice.
+     * excludes it — so this must NOT also subtract reservedForPendingPayouts()/
+     * paid payout totals, or a claimed commission's value would be
+     * counted as "reserved" twice.
      */
     public function availableBalance(): float
     {
-        $available = Commission::query()
-            ->where('organisation_id', $this->organisation->id)
+        $available = $this->organisation->commissions()
             ->effectivelyAvailable()
-            ->sum('commission_amount');
+            ->sum('agency_commission');
 
         return round((float) $available, 2);
     }
@@ -52,51 +52,49 @@ class AgencyFinanceService
      */
     public function reservedForPendingPayouts(): float
     {
-        return (float) Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->payouts()
             ->whereIn('status', Payout::RESERVING_STATUSES)
             ->sum('amount');
     }
 
     public function pendingCommission(): float
     {
-        return (float) Commission::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->commissions()
             ->stillPending()
-            ->sum('commission_amount');
+            ->sum('agency_commission');
     }
 
-    /** Total commission ever earned, excluding anything reversed by a refund. */
+    /**
+     * Total commission ever earned, excluding anything reversed by a
+     * refund and anything cancelled (the underlying Shopify charge never
+     * actually succeeded — see the 2026_09_18_000010 migration).
+     */
     public function lifetimeEarnings(): float
     {
-        return (float) Commission::query()
-            ->where('organisation_id', $this->organisation->id)
-            ->where('status', '!=', Commission::STATUS_REFUNDED)
-            ->sum('commission_amount');
+        return (float) $this->organisation->commissions()
+            ->whereNotIn('commission_status', [Commission::STATUS_REFUNDED, Commission::STATUS_CANCELLED])
+            ->sum('agency_commission');
     }
 
     public function thisMonthEarnings(): float
     {
-        return (float) Commission::query()
-            ->where('organisation_id', $this->organisation->id)
-            ->whereBetween('transaction_date', [now()->startOfMonth(), now()->endOfMonth()])
-            ->sum('commission_amount');
+        return (float) $this->organisation->commissions()
+            ->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])
+            ->sum('agency_commission');
     }
 
     public function paidThisMonth(): float
     {
-        return (float) Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->payouts()
             ->where('status', Payout::STATUS_PAID)
             ->whereBetween('paid_at', [now()->startOfMonth(), now()->endOfMonth()])
             ->sum('amount');
     }
 
-    /** Lifetime total ever actually paid out to this agency. */
+    /** Lifetime total ever actually paid out to this partner. */
     public function totalPaid(): float
     {
-        return (float) Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->payouts()
             ->where('status', Payout::STATUS_PAID)
             ->sum('amount');
     }
@@ -109,10 +107,9 @@ class AgencyFinanceService
      */
     public function commissionsPaid(): float
     {
-        return (float) Commission::query()
-            ->where('organisation_id', $this->organisation->id)
-            ->where('status', Commission::STATUS_PAID)
-            ->sum('commission_amount');
+        return (float) $this->organisation->commissions()
+            ->where('commission_status', Commission::STATUS_PAID)
+            ->sum('agency_commission');
     }
 
     /**
@@ -125,10 +122,9 @@ class AgencyFinanceService
      */
     public function claimCommissionsForPayout(float $amount): Collection
     {
-        $rows = Commission::query()
-            ->where('organisation_id', $this->organisation->id)
+        $rows = $this->organisation->commissions()
             ->effectivelyAvailable()
-            ->orderBy('transaction_date')
+            ->orderBy('created_at')
             ->orderBy('id')
             ->lockForUpdate()
             ->get();
@@ -141,7 +137,7 @@ class AgencyFinanceService
                 break;
             }
             $claimed->push($row);
-            $sum += (float) $row->commission_amount;
+            $sum += (float) $row->agency_commission;
         }
 
         return $claimed;
@@ -149,24 +145,21 @@ class AgencyFinanceService
 
     public function processingPayouts(): float
     {
-        return (float) Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->payouts()
             ->where('status', Payout::STATUS_PROCESSING)
             ->sum('amount');
     }
 
     public function pendingPayouts(): float
     {
-        return (float) Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return (float) $this->organisation->payouts()
             ->where('status', Payout::STATUS_PENDING)
             ->sum('amount');
     }
 
     public function lastPayout(): ?Payout
     {
-        return Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return $this->organisation->payouts()
             ->where('status', Payout::STATUS_PAID)
             ->orderByDesc('paid_at')
             ->first();
@@ -188,8 +181,7 @@ class AgencyFinanceService
 
     public function hasPendingOrProcessingPayout(): bool
     {
-        return Payout::query()
-            ->where('organisation_id', $this->organisation->id)
+        return $this->organisation->payouts()
             ->whereIn('status', Payout::RESERVING_STATUSES)
             ->exists();
     }

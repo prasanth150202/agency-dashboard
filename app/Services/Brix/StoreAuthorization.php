@@ -2,9 +2,9 @@
 
 namespace App\Services\Brix;
 
-use App\Models\Brix\AgencyStore;
-use App\Models\Brix\AgencyStoreOnboarding;
-use App\Models\Brix\Store as BrixStore;
+use App\Models\Partners\AgencyStore;
+use App\Models\Partners\AgencyStoreOnboarding;
+use App\Models\Store as BrixStore;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -25,7 +25,7 @@ class StoreAuthorization
      */
     public static function authorize(BrixStore $brixStore, int $agencyId): array
     {
-        return DB::connection('agency')->transaction(function () use ($agencyId, $brixStore) {
+        return DB::transaction(function () use ($agencyId, $brixStore) {
             $relationship = AgencyStore::where('agency_id', $agencyId)
                 ->where('store_id', $brixStore->id)
                 ->lockForUpdate()
@@ -56,7 +56,7 @@ class StoreAuthorization
      */
     public static function activate(BrixStore $brixStore, int $agencyId): bool
     {
-        return DB::connection('agency')->transaction(function () use ($agencyId, $brixStore) {
+        return DB::transaction(function () use ($agencyId, $brixStore) {
             $relationship = AgencyStore::where('agency_id', $agencyId)
                 ->where('store_id', $brixStore->id)
                 ->lockForUpdate()

@@ -2,11 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Brix\ActivityLog as BrixActivityLog;
-use App\Models\Brix\AgencyStore;
-use App\Models\Brix\AgencyStoreOnboarding;
-use App\Models\Brix\Store as BrixStore;
 use App\Models\Organisation;
+use App\Models\Partners\ActivityLog as BrixActivityLog;
+use App\Models\Partners\AgencyStore;
+use App\Models\Partners\AgencyStoreOnboarding;
 use App\Models\Store;
 use App\Services\Brix\BrixInstallCheck;
 use App\Services\Brix\LocalStoreSync;
@@ -25,7 +24,7 @@ use Illuminate\View\View;
  * The Shopify Store Connection / Onboarding flow.
  *
  * Two distinct truths are kept carefully separate throughout this
- * controller (see the module docs in brix_superadmin's schema):
+ * controller (see the module docs in the merged database's schema):
  *  - Shopify installation/authentication — Store::installation_status /
  *    authorization_status, written only by the external Shopify app via
  *    Internal\AgencyShopifyWebhookController. This controller only ever
@@ -73,10 +72,10 @@ class StoreConnectionController extends Controller
         RateLimitGuard::hit("connect:shop:{$domain}");
         RateLimitGuard::hit("connect:agency:{$agency->id}");
 
-        $brixStore = BrixStore::where('shop_domain', $domain)->first();
+        $store = Store::where('shop_domain', $domain)->first();
 
-        if ($brixStore && (int) $brixStore->agency_id !== (int) $agency->id) {
-            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agency->id, $brixStore->id, [
+        if ($store && (int) $store->agency_id !== (int) $agency->id) {
+            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agency->id, $store->id, [
                 'shop_domain' => $domain,
                 'reason' => 'cross_agency',
             ], $request);
@@ -85,15 +84,11 @@ class StoreConnectionController extends Controller
                 ->with('error', 'This store is already connected to another agency.');
         }
 
-        if ($brixStore) {
-            $relationship = AgencyStore::where('agency_id', $agency->id)->where('store_id', $brixStore->id)->first();
+        if ($store) {
+            $relationship = AgencyStore::where('agency_id', $agency->id)->where('store_id', $store->id)->first();
 
             if ($relationship?->relationship_status === 'ACTIVE') {
-                $local = Store::where('shop_domain', $domain)->first();
-
-                return $local
-                    ? redirect()->route('stores.show', $local)->with('info', 'Store is already active.')
-                    : redirect()->route('stores.index')->with('info', 'Store is already active.');
+                return redirect()->route('stores.show', $store)->with('info', 'Store is already active.');
             }
         }
 
@@ -118,14 +113,14 @@ class StoreConnectionController extends Controller
                 'state_token' => AgencyStoreOnboarding::hashToken($rawToken),
                 'shop_domain' => $domain,
                 'status' => 'STARTED',
-                'created_store_id' => $brixStore?->id,
+                'created_store_id' => $store?->id,
                 'expires_at' => now()->addMinutes(15),
             ]);
         }
 
-        BrixActivityLog::record('STORE_CONNECTION_STARTED', $agency->id, $brixStore?->id, [
+        BrixActivityLog::record('STORE_CONNECTION_STARTED', $agency->id, $store?->id, [
             'shop_domain' => $domain,
-            'already_installed' => $brixStore?->installation_status === 'INSTALLED',
+            'already_installed' => $store?->installation_status === 'INSTALLED',
         ], $request);
 
         return redirect()->route('stores.connect.wait', ['token' => $rawToken]);
@@ -161,7 +156,7 @@ class StoreConnectionController extends Controller
      * Browser-navigation endpoint (a real link, opened by a direct click —
      * browsers block window.open() from non-click code). Never talks to
      * Shopify's OAuth endpoints itself; it only decides where to send the
-     * merchant, verified against brix_superadmin's own stores table.
+     * merchant, verified against the real stores table.
      */
     public function install(Request $request, string $token): RedirectResponse
     {
@@ -172,9 +167,9 @@ class StoreConnectionController extends Controller
             abort(410, 'This connection attempt expired. Please start again from Stores.');
         }
 
-        $brixStore = $this->reconcileInstallation($onboarding);
+        $store = $this->reconcileInstallation($onboarding);
 
-        if ($brixStore?->installation_status === 'INSTALLED') {
+        if ($store?->installation_status === 'INSTALLED') {
             // Already installed — never send an already-connected merchant
             // back to the App Store. Send them straight into their
             // installed BRIX app to continue the agency-authorization flow.
@@ -183,7 +178,7 @@ class StoreConnectionController extends Controller
 
         $onboarding->update(['status' => 'INSTALL_REQUIRED']);
 
-        BrixActivityLog::record('STORE_INSTALLATION_REQUIRED', $onboarding->agency_id, $brixStore?->id, [
+        BrixActivityLog::record('STORE_INSTALLATION_REQUIRED', $onboarding->agency_id, $store?->id, [
             'shop_domain' => $onboarding->shop_domain,
         ], $request);
 
@@ -193,7 +188,7 @@ class StoreConnectionController extends Controller
     /**
      * Abandon a pending onboarding attempt from the Stores index — e.g.
      * the agency gave up waiting for the merchant to install BRIX. Never
-     * touches brix_superadmin's stores/agency_stores rows; only marks this
+     * touches the real stores/agency_stores rows; only marks this
      * onboarding attempt itself FAILED so it drops off the pending list.
      */
     public function cancel(Request $request, AgencyStoreOnboarding $onboarding): RedirectResponse
@@ -233,14 +228,12 @@ class StoreConnectionController extends Controller
         }
         RateLimitGuard::hit("authorize:store:{$store->id}");
 
-        $brixStore = BrixStore::where('shop_domain', $store->shop_domain)->first();
-
-        if (! $brixStore || $brixStore->installation_status !== 'INSTALLED') {
+        if ($store->installation_status !== 'INSTALLED') {
             return $this->respond($request, false, 'BRIX installation is required.', status: 422, redirectTo: $store);
         }
 
-        if ((int) $brixStore->agency_id !== (int) $agency->id) {
-            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agency->id, $brixStore->id, [
+        if ((int) $store->agency_id !== (int) $agency->id) {
+            BrixActivityLog::record('STORE_CONNECTION_FAILED', $agency->id, $store->id, [
                 'shop_domain' => $store->shop_domain,
                 'reason' => 'cross_agency',
             ], $request);
@@ -249,22 +242,22 @@ class StoreConnectionController extends Controller
         }
 
         $alreadyAuthorized = AgencyStore::where('agency_id', $agency->id)
-            ->where('store_id', $brixStore->id)
+            ->where('store_id', $store->id)
             ->whereIn('relationship_status', ['AUTHORIZED', 'ACTIVE'])
             ->exists();
 
         if (! $alreadyAuthorized) {
-            BrixActivityLog::record('STORE_AUTHORIZATION_STARTED', $agency->id, $brixStore->id, [
+            BrixActivityLog::record('STORE_AUTHORIZATION_STARTED', $agency->id, $store->id, [
                 'shop_domain' => $store->shop_domain,
             ], $request);
         }
 
-        [$relationshipStatus, $justAuthorized] = StoreAuthorization::authorize($brixStore, $agency->id);
+        [$relationshipStatus, $justAuthorized] = StoreAuthorization::authorize($store, $agency->id);
 
-        $local = LocalStoreSync::sync($organisation, $brixStore, $relationshipStatus);
+        LocalStoreSync::touch($store, $relationshipStatus);
 
         if ($justAuthorized) {
-            BrixActivityLog::record('STORE_AUTHORIZED', $agency->id, $brixStore->id, [
+            BrixActivityLog::record('STORE_AUTHORIZED', $agency->id, $store->id, [
                 'shop_domain' => $store->shop_domain,
             ], $request);
         }
@@ -273,8 +266,8 @@ class StoreConnectionController extends Controller
             $request,
             true,
             $relationshipStatus === 'ACTIVE' ? 'Store is already active.' : 'Store authorized. It can now be activated.',
-            ['relationship_status' => $relationshipStatus, 'store_id' => $local->id],
-            redirectTo: $local
+            ['relationship_status' => $relationshipStatus, 'store_id' => $store->id],
+            redirectTo: $store
         );
     }
 
@@ -291,31 +284,29 @@ class StoreConnectionController extends Controller
         }
         RateLimitGuard::hit("activate:store:{$store->id}");
 
-        $brixStore = BrixStore::where('shop_domain', $store->shop_domain)->first();
-
-        if (! $brixStore || $brixStore->installation_status !== 'INSTALLED') {
+        if ($store->installation_status !== 'INSTALLED') {
             return $this->respond($request, false, 'BRIX installation could not be verified.', status: 422, redirectTo: $store);
         }
 
-        if ((int) $brixStore->agency_id !== (int) $agency->id) {
+        if ((int) $store->agency_id !== (int) $agency->id) {
             return $this->respond($request, false, 'Store activation failed.', status: 403, redirectTo: $store);
         }
 
         try {
-            $justActivated = StoreAuthorization::activate($brixStore, $agency->id);
+            $justActivated = StoreAuthorization::activate($store, $agency->id);
         } catch (\RuntimeException $e) {
             return $this->respond($request, false, 'Store must be authorized before activation.', status: 409, redirectTo: $store);
         }
 
-        $local = LocalStoreSync::sync($organisation, $brixStore, 'ACTIVE');
+        LocalStoreSync::touch($store, 'ACTIVE');
 
         if ($justActivated) {
-            BrixActivityLog::record('STORE_ACTIVATED', $agency->id, $brixStore->id, [
+            BrixActivityLog::record('STORE_ACTIVATED', $agency->id, $store->id, [
                 'shop_domain' => $store->shop_domain,
             ], $request);
         }
 
-        return $this->respond($request, true, 'Store activated.', ['redirect' => route('stores.show', $local)], redirectTo: $local);
+        return $this->respond($request, true, 'Store activated.', ['redirect' => route('stores.show', $store)], redirectTo: $store);
     }
 
     /**
@@ -336,31 +327,25 @@ class StoreConnectionController extends Controller
         }
         RateLimitGuard::hit("reconnect:store:{$store->id}");
 
-        $brixStore = BrixStore::where('shop_domain', $store->shop_domain)->first();
-
-        if (! $brixStore) {
-            return $this->respond($request, false, 'Store could not be found.', status: 404, redirectTo: $store);
-        }
-
-        if ((int) $brixStore->agency_id !== (int) $agency->id) {
+        if ((int) $store->agency_id !== (int) $agency->id) {
             return $this->respond($request, false, 'Access denied.', status: 403, redirectTo: $store);
         }
 
-        BrixActivityLog::record('STORE_RECONNECTED', $agency->id, $brixStore->id, [
+        BrixActivityLog::record('STORE_RECONNECTED', $agency->id, $store->id, [
             'shop_domain' => $store->shop_domain,
             'previously' => 'DISCONNECTED',
         ], $request);
 
-        if ($brixStore->installation_status === 'INSTALLED') {
+        if ($store->installation_status === 'INSTALLED') {
             // Shopify install survived — only the agency relationship was
             // disconnected. Reset it to PENDING so the merchant/agency has
             // to explicitly re-authorize (never auto-reactivate).
             AgencyStore::updateOrCreate(
-                ['agency_id' => $agency->id, 'store_id' => $brixStore->id],
+                ['agency_id' => $agency->id, 'store_id' => $store->id],
                 ['relationship_status' => 'PENDING', 'disconnected_at' => null]
             );
 
-            LocalStoreSync::sync($organisation, $brixStore, 'PENDING');
+            LocalStoreSync::touch($store, 'PENDING');
 
             return $this->respond($request, true, 'Store reconnected. You can now authorize it again.', ['redirect' => route('stores.show', $store)], redirectTo: $store);
         }
@@ -371,9 +356,9 @@ class StoreConnectionController extends Controller
         AgencyStoreOnboarding::create([
             'agency_id' => $agency->id,
             'state_token' => AgencyStoreOnboarding::hashToken($rawToken),
-            'shop_domain' => $brixStore->shop_domain,
+            'shop_domain' => $store->shop_domain,
             'status' => 'STARTED',
-            'created_store_id' => $brixStore->id,
+            'created_store_id' => $store->id,
             'expires_at' => now()->addMinutes(15),
         ]);
 
@@ -385,27 +370,27 @@ class StoreConnectionController extends Controller
     }
 
     /**
-     * brix_superadmin's stores.installation_status only flips to INSTALLED
-     * when a Shopify install webhook lands during a live onboarding. A
-     * store the agency connects that was ALREADY installed — before this
+     * The real stores.installation_status only flips to INSTALLED when a
+     * Shopify install webhook lands during a live onboarding. A store the
+     * agency connects that was ALREADY installed — before this
      * onboarding, or straight from the App Store — never triggers that,
      * which is what leaves the merchant bounced back to the App Store for
      * an app they already have.
      *
-     * Backstop: when the mirror isn't INSTALLED, ask the live BRIX backend
+     * Backstop: when the row isn't INSTALLED, ask the live BRIX backend
      * directly (cached briefly — the wait screen polls buildStatus() every
-     * couple of seconds) and, if it confirms the install, mirror it now —
+     * couple of seconds) and, if it confirms the install, record it now —
      * the same effect as the webhook — so the rest of the flow proceeds
      * straight to agency authorization. A missing/unreachable backend
-     * leaves the mirror untouched, so the existing App-Store fallback
-     * still applies.
+     * leaves the row untouched, so the existing App-Store fallback still
+     * applies.
      */
-    private function reconcileInstallation(AgencyStoreOnboarding $onboarding): ?BrixStore
+    private function reconcileInstallation(AgencyStoreOnboarding $onboarding): ?Store
     {
-        $brixStore = BrixStore::where('shop_domain', $onboarding->shop_domain)->first();
+        $store = Store::where('shop_domain', $onboarding->shop_domain)->first();
 
-        if ($brixStore?->installation_status === 'INSTALLED') {
-            return $brixStore;
+        if ($store?->installation_status === 'INSTALLED') {
+            return $store;
         }
 
         // Cache a string sentinel, not the bool/null itself — Cache::remember
@@ -422,7 +407,7 @@ class StoreConnectionController extends Controller
         );
 
         if ($verdict !== 'installed') {
-            return $brixStore;
+            return $store;
         }
 
         $result = StoreInstallationSync::mirror($onboarding->shop_domain, (int) $onboarding->agency_id, null, 'wizard_reconcile');
@@ -430,7 +415,7 @@ class StoreConnectionController extends Controller
         if ($result === null) {
             // Shop belongs to another agency — leave the flow to fail the
             // same way it would have without this backstop.
-            return $brixStore;
+            return $store;
         }
 
         if (in_array($onboarding->status, ['STARTED', 'INSTALL_REQUIRED', 'INSTALLING'], true)) {
@@ -472,41 +457,41 @@ class StoreConnectionController extends Controller
             return ['stage' => 'FAILED', 'shop_domain' => $onboarding->shop_domain, 'message' => $onboarding->failure_reason ?? "We couldn't connect this store."];
         }
 
-        $brixStore = $this->reconcileInstallation($onboarding);
+        $store = $this->reconcileInstallation($onboarding);
 
-        if (! $brixStore || $brixStore->installation_status === 'NOT_INSTALLED') {
+        if (! $store || $store->installation_status === 'NOT_INSTALLED') {
             return ['stage' => 'INSTALL_REQUIRED', 'shop_domain' => $onboarding->shop_domain, 'agency_name' => $agency->name, 'message' => "Click the button below — we'll pick up automatically once it's installed."];
         }
 
-        if ($brixStore->installation_status === 'UNINSTALLED') {
+        if ($store->installation_status === 'UNINSTALLED') {
             return ['stage' => 'UNINSTALLED', 'shop_domain' => $onboarding->shop_domain, 'message' => 'BRIX is no longer installed on this store.'];
         }
 
-        if ($brixStore->installation_status !== 'INSTALLED') {
+        if ($store->installation_status !== 'INSTALLED') {
             return ['stage' => 'INSTALLING', 'shop_domain' => $onboarding->shop_domain, 'message' => 'Installing BRIX…'];
         }
 
         // Installed. From here, everything is agency-authorization state —
-        // self-heal the local mirror so the store-scoped authorize/activate
-        // routes below have something to act on even if the install
-        // webhook hasn't reached this app yet for some reason.
-        $relationship = AgencyStore::where('agency_id', $agency->id)->where('store_id', $brixStore->id)->first();
-        $local = LocalStoreSync::sync($organisation, $brixStore, $relationship?->relationship_status ?? 'PENDING');
+        // self-heal so the store-scoped authorize/activate routes below
+        // have something correct to act on even if the install webhook
+        // hasn't reached this app yet for some reason.
+        $relationship = AgencyStore::where('agency_id', $agency->id)->where('store_id', $store->id)->first();
+        LocalStoreSync::touch($store, $relationship?->relationship_status ?? 'PENDING');
 
         return match ($relationship?->relationship_status) {
             'ACTIVE' => [
                 'stage' => 'COMPLETE',
                 'shop_domain' => $onboarding->shop_domain,
                 'message' => 'Store connected successfully.',
-                'redirect' => route('stores.show', $local),
+                'redirect' => route('stores.show', $store),
             ],
             'AUTHORIZED' => [
                 'stage' => 'ACTIVATION_REQUIRED',
                 'shop_domain' => $onboarding->shop_domain,
                 'agency_name' => $agency->name,
                 'message' => 'Click the button below to finish connecting this store.',
-                'store_id' => $local->id,
-                'activate_url' => route('stores.activate', $local),
+                'store_id' => $store->id,
+                'activate_url' => route('stores.activate', $store),
                 'brix_app_url' => Store::brixAppUrlFor($onboarding->shop_domain, '/app/agency-connect'),
             ],
             default => [
@@ -514,8 +499,8 @@ class StoreConnectionController extends Controller
                 'shop_domain' => $onboarding->shop_domain,
                 'agency_name' => $agency->name,
                 'message' => "Click the button below to continue — we won't proceed without your confirmation.",
-                'store_id' => $local->id,
-                'authorize_url' => route('stores.authorize', $local),
+                'store_id' => $store->id,
+                'authorize_url' => route('stores.authorize', $store),
                 'brix_app_url' => Store::brixAppUrlFor($onboarding->shop_domain, '/app/agency-connect'),
             ],
         };

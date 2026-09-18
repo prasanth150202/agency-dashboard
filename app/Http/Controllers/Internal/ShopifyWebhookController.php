@@ -12,11 +12,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Server-to-server only. Called by Cartninja_admin_dashboard's
- * install_shop.php / uninstall_shop.php over HTTP (not a direct DB write —
- * that PHP app is on a different domain and shouldn't need to know how this
- * Laravel app stores its data). Authenticated by a shared secret header,
- * not by a logged-in session.
+ * Server-to-server only, kept for whatever legacy integration might still
+ * call it — the documented caller (Cartninja_admin_dashboard's
+ * install_shop.php / uninstall_shop.php) is retired; live installs go
+ * through Internal\AgencyShopifyWebhookController instead. Authenticated
+ * by a shared secret header, not by a logged-in session.
  */
 class ShopifyWebhookController extends Controller
 {
@@ -33,23 +33,25 @@ class ShopifyWebhookController extends Controller
 
         $shopDomain = strtolower($validated['shop_domain']);
 
-        $attempt = StoreConnectionAttempt::where('shop_domain', $shopDomain)
+        $attempt = StoreConnectionAttempt::with('organisation')
+            ->where('shop_domain', $shopDomain)
             ->whereIn('status', ['STARTED', 'AUTHORIZING', 'INSTALL_REQUIRED', 'INSTALLING'])
             ->where('expires_at', '>=', now())
             ->latest()
             ->first();
 
-        if (! $attempt) {
+        if (! $attempt || ! $attempt->organisation) {
             // No agency is currently connecting this store — nothing to do.
             return response()->json(['success' => true, 'message' => 'No pending connection attempt.']);
         }
 
+        $agencyId = $attempt->organisation->brixAgency()->id;
+
         $store = Store::updateOrCreate(
             ['shop_domain' => $shopDomain],
             [
-                'organisation_id' => $attempt->organisation_id,
-                'name' => $this->guessStoreName($shopDomain),
-                'admin_url' => "https://{$shopDomain}/admin",
+                'agency_id' => $agencyId,
+                'store_name' => $this->guessStoreName($shopDomain),
                 'shopify_shop_id' => $validated['shopify_shop_id'] ?? null,
                 'status' => 'active',
                 'installation_status' => 'INSTALLED',
@@ -106,10 +108,11 @@ class ShopifyWebhookController extends Controller
             report($e);
         }
 
-        foreach (array_keys(StoreModule::MODULES) as $module) {
+        foreach (StoreModule::MODULES as $key => $label) {
             $store->modules()->create([
-                'module' => $module,
-                'status' => in_array($module, $activeModules, true) ? 'active' : 'inactive',
+                'module_key' => $key,
+                'module_name' => $label,
+                'is_active' => in_array($key, $activeModules, true),
                 'last_updated_at' => now(),
             ]);
         }

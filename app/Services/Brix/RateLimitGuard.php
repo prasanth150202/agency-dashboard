@@ -16,7 +16,7 @@ class RateLimitGuard
     public static function tooMany(string $key, int $maxAttempts, int $withinSeconds): bool
     {
         try {
-            $count = DB::connection('agency')->table('rate_limit_hits')
+            $count = DB::table('rate_limit_hits')
                 ->where('rate_key', $key)
                 ->where('created_at', '>=', now()->subSeconds($withinSeconds))
                 ->count();
@@ -32,7 +32,7 @@ class RateLimitGuard
     public static function hit(string $key): void
     {
         try {
-            DB::connection('agency')->table('rate_limit_hits')->insert([
+            DB::table('rate_limit_hits')->insert([
                 'rate_key' => $key,
                 'created_at' => now(),
             ]);
