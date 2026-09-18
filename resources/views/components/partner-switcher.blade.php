@@ -3,12 +3,12 @@
         <button type="button" x-on:click="view = 'menu'" class="text-ink-400 hover:text-ink-700">
             <x-lucide-arrow-left class="h-4 w-4" />
         </button>
-        <p class="text-sm font-semibold text-ink-900">Organisations</p>
+        <p class="text-sm font-semibold text-ink-900">Partners</p>
     </div>
 
     <div class="max-h-72 overflow-y-auto p-1.5">
         @foreach ($availableOrganisations as $org)
-            <form method="POST" action="{{ route('organisations.switch') }}">
+            <form method="POST" action="{{ route('partners.switch') }}">
                 @csrf
                 <input type="hidden" name="organisation_id" value="{{ $org->id }}">
                 <button
@@ -28,18 +28,18 @@
     <div class="border-t border-ink-100 p-1.5">
         <button
             type="button"
-            x-on:click="close(); $dispatch('open-modal', 'create-organisation')"
+            x-on:click="close(); $dispatch('open-modal', 'create-partner')"
             class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-brix-600 hover:bg-brix-50"
         >
             <x-lucide-plus class="h-4 w-4" />
-            Create new organisation
+            Create new partner
         </button>
         <a
-            href="{{ route('organisations.index') }}"
+            href="{{ route('partners.index') }}"
             class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
         >
             <x-lucide-building-2 class="h-4 w-4" />
-            Manage all organisations
+            Manage all partners
         </a>
     </div>
 </div>

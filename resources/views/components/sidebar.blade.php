@@ -103,7 +103,7 @@
         </button>
     </div>
 
-    {{-- Organisation / profile footer --}}
+    {{-- Partner / profile footer --}}
     <div class="border-t border-ink-200/70 p-3">
         <div class="flex items-center gap-2.5 rounded-xl px-2 py-2" :class="sidebarCollapsed && 'lg:justify-center'">
             <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink-900 text-xs font-semibold text-white">

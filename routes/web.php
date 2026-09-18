@@ -57,9 +57,12 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
 
-    Route::get('/organisations', [OrganisationController::class, 'index'])->name('organisations.index');
-    Route::post('/organisations', [OrganisationController::class, 'store'])->name('organisations.store');
-    Route::post('/organisations/switch', [OrganisationController::class, 'switch'])->name('organisations.switch');
+    // URL/route names say "partners" (user-facing) — the controller/model
+    // underneath stays Organisation, this app's own login/tenant table,
+    // distinct from Partner (agencies), the real system-of-record model.
+    Route::get('/partners', [OrganisationController::class, 'index'])->name('partners.index');
+    Route::post('/partners', [OrganisationController::class, 'store'])->name('partners.store');
+    Route::post('/partners/switch', [OrganisationController::class, 'switch'])->name('partners.switch');
 
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
     Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');

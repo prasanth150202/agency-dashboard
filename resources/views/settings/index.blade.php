@@ -5,14 +5,14 @@
     </div>
 
     <div class="mt-6 max-w-xl rounded-2xl border border-ink-200/70 bg-white p-6 shadow-subtle">
-        <h3 class="text-sm font-semibold text-ink-900">Organisation details</h3>
+        <h3 class="text-sm font-semibold text-ink-900">Partner details</h3>
 
         <form method="POST" action="{{ route('settings.update') }}" class="mt-5 space-y-4">
             @csrf
             @method('PUT')
 
             <div>
-                <label for="settings-name" class="mb-1.5 block text-sm font-medium text-ink-700">Organisation name</label>
+                <label for="settings-name" class="mb-1.5 block text-sm font-medium text-ink-700">Partner name</label>
                 <input
                     id="settings-name"
                     type="text"

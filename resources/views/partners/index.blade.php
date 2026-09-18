@@ -1,18 +1,18 @@
-<x-app-layout title="Organisations">
+<x-app-layout title="Partners">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-            <h2 class="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">Organisations</h2>
+            <h2 class="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">Partners</h2>
             <p class="mt-1 text-sm text-ink-500">Every agency workspace you're a member of.</p>
         </div>
 
         <button
             type="button"
             x-data
-            x-on:click="$dispatch('open-modal', 'create-organisation')"
+            x-on:click="$dispatch('open-modal', 'create-partner')"
             class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700"
         >
             <x-lucide-plus class="h-4 w-4" />
-            Create new organisation
+            Create new partner
         </button>
     </div>
 
@@ -35,11 +35,11 @@
                 @endif
 
                 @if ($currentOrganisation->id !== $org->id)
-                    <form method="POST" action="{{ route('organisations.switch') }}" class="mt-4">
+                    <form method="POST" action="{{ route('partners.switch') }}" class="mt-4">
                         @csrf
                         <input type="hidden" name="organisation_id" value="{{ $org->id }}">
                         <button type="submit" class="w-full rounded-lg border border-ink-200 px-3 py-2 text-xs font-medium text-ink-700 hover:bg-ink-50">
-                            Switch to this organisation
+                            Switch to this partner
                         </button>
                     </form>
                 @endif

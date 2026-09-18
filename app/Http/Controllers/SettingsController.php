@@ -44,6 +44,6 @@ class SettingsController extends Controller
 
         $organisation->update($validated);
 
-        return back()->with('success', 'Organisation settings updated.');
+        return back()->with('success', 'Partner settings updated.');
     }
 }

@@ -18,7 +18,7 @@ class OrganisationController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('organisations.index', [
+        return view('partners.index', [
             'organisations' => $organisations,
         ]);
     }
@@ -41,7 +41,7 @@ class OrganisationController extends Controller
             ],
             'website' => ['nullable', 'url', 'max:255'],
         ], [
-            'name.unique' => 'You already have an organisation with this name.',
+            'name.unique' => 'You already have a partner with this name.',
         ]);
 
         $organisation = Organisation::create([
@@ -59,7 +59,7 @@ class OrganisationController extends Controller
 
         return redirect()
             ->route('dashboard')
-            ->with('success', 'Organisation created successfully.');
+            ->with('success', 'Partner created successfully.');
     }
 
     public function switch(Request $request): RedirectResponse
@@ -79,6 +79,6 @@ class OrganisationController extends Controller
 
         return redirect()
             ->route('dashboard')
-            ->with('success', 'Switched organisation.');
+            ->with('success', 'Switched partner.');
     }
 }

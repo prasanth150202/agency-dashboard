@@ -27,7 +27,7 @@
                 </div>
 
                 <div class="border-b border-ink-100 px-4 py-3">
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Organisation</p>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Partner</p>
                     <p class="mt-1 text-sm font-medium text-ink-900">{{ $currentOrganisation->name ?? '—' }}</p>
                 </div>
 
@@ -39,7 +39,7 @@
                     >
                         <span class="flex items-center gap-2.5">
                             <x-lucide-building-2 class="h-4 w-4 text-ink-400" />
-                            Switch organisation
+                            Switch partner
                         </span>
                         <x-lucide-chevron-right class="h-4 w-4 text-ink-400" />
                     </button>
@@ -48,7 +48,7 @@
                         class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
                     >
                         <x-lucide-settings class="h-4 w-4 text-ink-400" />
-                        Organisation settings
+                        Partner settings
                     </a>
                     <a
                         href="{{ route('profile.edit') }}"
@@ -59,11 +59,11 @@
                     </a>
                     <button
                         type="button"
-                        x-on:click="close(); $dispatch('open-modal', 'create-organisation')"
+                        x-on:click="close(); $dispatch('open-modal', 'create-partner')"
                         class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
                     >
                         <x-lucide-plus class="h-4 w-4 text-ink-400" />
-                        Create new organisation
+                        Create new partner
                     </button>
                 </div>
 
@@ -83,7 +83,7 @@
         </template>
 
         <template x-if="view === 'switch'">
-            <x-organisation-switcher />
+            <x-partner-switcher />
         </template>
     </div>
 </div>

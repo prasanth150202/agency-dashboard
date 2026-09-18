@@ -30,7 +30,7 @@
         </div>
 
         <x-toast />
-        <x-create-organisation-modal />
+        <x-create-partner-modal />
 
         @stack('scripts')
     </body>

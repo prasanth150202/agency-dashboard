@@ -1,7 +1,7 @@
-<x-modal name="create-organisation" :open-on-load="$errors->organisation->any()">
+<x-modal name="create-partner" :open-on-load="$errors->organisation->any()">
     <div class="flex items-start justify-between">
         <div>
-            <h2 class="text-base font-semibold text-ink-900">Create new organisation</h2>
+            <h2 class="text-base font-semibold text-ink-900">Create new partner</h2>
             <p class="mt-1 text-sm text-ink-500">Add a new agency workspace to manage its own stores.</p>
         </div>
         <button type="button" x-on:click="show = false" class="text-ink-400 hover:text-ink-700">
@@ -9,11 +9,11 @@
         </button>
     </div>
 
-    <form method="POST" action="{{ route('organisations.store') }}" class="mt-5 space-y-4">
+    <form method="POST" action="{{ route('partners.store') }}" class="mt-5 space-y-4">
         @csrf
 
         <div>
-            <label for="org-name" class="mb-1.5 block text-sm font-medium text-ink-700">Organisation name</label>
+            <label for="org-name" class="mb-1.5 block text-sm font-medium text-ink-700">Partner name</label>
             <input
                 id="org-name"
                 type="text"
@@ -54,7 +54,7 @@
                 type="submit"
                 class="rounded-lg bg-brix-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brix-700"
             >
-                Create organisation
+                Create partner
             </button>
         </div>
     </form>
