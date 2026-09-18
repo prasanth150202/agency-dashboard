@@ -50,10 +50,14 @@
         </div>
     </div>
 
-    <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-5">
+    <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-6">
         <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">Store status</p>
             <div class="mt-2"><x-status-badge :status="$store->status" /></div>
+        </div>
+        <div class="rounded-2xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+            <p class="text-xs font-medium text-ink-500">Plan</p>
+            <p class="mt-2.5 text-sm font-medium text-ink-900">{{ $store->plan }}</p>
         </div>
         @php
             $installBadge = match ($store->installation_status) {

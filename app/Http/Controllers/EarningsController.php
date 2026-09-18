@@ -4,92 +4,101 @@ namespace App\Http\Controllers;
 
 use App\Models\Commission;
 use App\Models\Organisation;
+use App\Models\Store;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * The Agency Dashboard's "Commissions" page (kept on the historical
+ * /earnings route/name — see routes/web.php). Renders the commission
+ * ledger, KPI summary, and the right-rail Available Balance / My Stores
+ * cards, all scoped to the session-derived organisation.
+ */
 class EarningsController extends Controller
 {
+    /** Status filter options shown in the UI — see Commission::visual_status. */
+    private const STATUS_FILTERS = ['pending', 'eligible', 'available', 'in_payout', 'paid', 'refunded', 'cancelled'];
+
     public function index(Request $request)
     {
         /** @var Organisation $organisation */
         $organisation = $request->attributes->get('currentOrganisation');
         $finance = $organisation->finance();
 
-        $filters = $request->only(['search', 'range', 'status', 'plan', 'rate']);
-        [$rangeStart, $rangeEnd] = $this->resolveDateRange($filters['range'] ?? 'this_month');
+        $filters = array_merge([
+            'search' => '', 'range' => 'all_time', 'status' => 'all', 'store' => 'all',
+        ], array_filter($request->only(['search', 'range', 'status', 'store']), fn ($v) => $v !== null && $v !== ''));
+
+        [$rangeStart, $rangeEnd] = $this->resolveDateRange($filters['range']);
 
         $commissions = Commission::query()
             ->where('organisation_id', $organisation->id)
-            ->with('store')
+            ->with(['store', 'payouts'])
             ->when($rangeStart, fn ($q) => $q->whereBetween('transaction_date', [$rangeStart, $rangeEnd]))
+            ->when($filters['store'] !== 'all', fn ($q) => $q->where('store_id', $filters['store']))
+            ->when(! empty($filters['search']), function ($q) use ($filters) {
+                $term = $filters['search'];
+                // "Order ID" is displayed/searched as TXN-{id} (see
+                // export() and the ledger view) — there's no separate
+                // real order record to search against, so a "TXN-123"
+                // or bare "123" search matches the commission's own id.
+                $numericId = (int) preg_replace('/\D/', '', $term);
+
+                $q->where(function ($q2) use ($term, $numericId) {
+                    if ($numericId > 0) {
+                        $q2->orWhere('id', $numericId);
+                    }
+                    $q2->orWhere('commission_amount', 'like', "%{$term}%")
+                        ->orWhere('gross_amount', 'like', "%{$term}%")
+                        ->orWhereHas('store', function ($q3) use ($term) {
+                            $q3->where('name', 'like', "%{$term}%")->orWhere('shop_domain', 'like', "%{$term}%");
+                        });
+                });
+            })
+            ->orderByDesc('transaction_date')
+            ->orderByDesc('id')
+            ->get()
+            // Status filtering happens on visual_status (display-only —
+            // see Commission::getVisualStatusAttribute()), which isn't a
+            // real column to filter by in SQL.
+            ->when($filters['status'] !== 'all', fn ($c) => $c->filter(fn (Commission $row) => $row->visual_status === $filters['status'])->values());
+
+        $perPage = 15;
+        $page = (int) $request->query('page', 1);
+        $commissionsPage = new LengthAwarePaginator(
+            $commissions->forPage($page, $perPage)->values(),
+            $commissions->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        $myStores = Store::where('organisation_id', $organisation->id)
+            ->withSum(['commissions as commission_total' => function ($q) {
+                $q->where('status', '!=', Commission::STATUS_REFUNDED);
+            }], 'commission_amount')
+            ->orderByDesc('commission_total')
+            ->limit(8)
             ->get();
 
-        // Store Earnings is aggregated per store; every filter below acts
-        // on that aggregate so the table and the CSV export stay in sync.
-        $storeEarnings = $commissions
-            ->groupBy('store_id')
-            ->map(function ($group) {
-                $store = $group->first()->store;
-                $latest = $group->sortByDesc('transaction_date')->first();
-
-                // Split per-store earnings by effective status — a "pending"
-                // commission whose holding period has already lifted counts
-                // toward "available", not "pending" (see Commission::effective_status).
-                $pending = $group->filter(fn ($c) => $c->effective_status === Commission::STATUS_PENDING);
-                $available = $group->filter(fn ($c) => $c->effective_status === Commission::STATUS_AVAILABLE);
-
-                return (object) [
-                    'store' => $store,
-                    'gross_revenue' => $group->sum('gross_amount'),
-                    'commission_earned' => $group->sum('commission_amount'),
-                    'commission_rate' => $store->effective_commission_rate,
-                    'commission_source_label' => $store->commission_source_label,
-                    'pending_amount' => $pending->sum('commission_amount'),
-                    'available_amount' => $available->sum('commission_amount'),
-                    'status' => $latest->effective_status,
-                    'latest_commission' => $latest,
-                ];
-            })
-            ->filter(function ($row) use ($filters) {
-                if (! empty($filters['search']) && ! str_contains(strtolower($row->store->name), strtolower($filters['search']))) {
-                    return false;
-                }
-                if (! empty($filters['status']) && $filters['status'] !== 'all' && $row->status !== $filters['status']) {
-                    return false;
-                }
-                if (! empty($filters['plan']) && $filters['plan'] !== 'all' && $row->store->plan !== $filters['plan']) {
-                    return false;
-                }
-
-                return true;
-            })
-            ->values();
-
-        // Rate-type filter (kept outside the closure above for clarity).
-        if (! empty($filters['rate']) && $filters['rate'] !== 'all') {
-            $storeEarnings = $storeEarnings->filter(
-                fn ($row) => $row->store->commission_source === ($filters['rate'] === 'custom' ? 'custom' : 'agency_default')
-            )->values();
-        }
-
-        $plans = \App\Models\Store::where('organisation_id', $organisation->id)
-            ->select('plan')->distinct()->pluck('plan');
+        $stores = Store::where('organisation_id', $organisation->id)->orderBy('name')->get(['id', 'name']);
 
         return view('earnings.index', [
             'organisation' => $organisation,
             'finance' => $finance,
             'metrics' => [
-                'this_month' => $finance->thisMonthEarnings(),
-                'available' => $finance->availableBalance(),
+                'total_earned' => $finance->lifetimeEarnings(),
                 'pending' => $finance->pendingCommission(),
-                'lifetime' => $finance->lifetimeEarnings(),
+                'available' => $finance->availableBalance(),
+                'paid' => $finance->commissionsPaid(),
             ],
-            'storeEarnings' => $storeEarnings,
-            'plans' => $plans,
-            'filters' => array_merge([
-                'search' => '', 'range' => 'this_month', 'status' => 'all', 'plan' => 'all', 'rate' => 'all',
-            ], array_filter($filters, fn ($v) => $v !== null)),
+            'commissions' => $commissionsPage,
+            'stores' => $stores,
+            'myStores' => $myStores,
+            'statusFilters' => self::STATUS_FILTERS,
+            'filters' => $filters,
             'minimumPayout' => $finance->minimumPayoutAmount(),
             'canRequestPayout' => $finance->canRequestPayout(),
         ]);
@@ -109,22 +118,21 @@ class EarningsController extends Controller
             ->orderByDesc('transaction_date')
             ->get();
 
-        $filename = 'brix-earnings-'.now()->format('Y-m-d').'.csv';
+        $filename = 'brix-commissions-'.now()->format('Y-m-d').'.csv';
 
         return response()->streamDownload(function () use ($commissions) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Store', 'Plan', 'Transaction ID', 'Date', 'Gross Revenue', 'Commission Rate', 'Commission', 'Status']);
+            fputcsv($out, ['Order ID', 'Store', 'Order Amount', 'Commission Rate', 'Commission', 'Date', 'Status']);
 
             foreach ($commissions as $commission) {
                 fputcsv($out, [
-                    $commission->store->name,
-                    $commission->store->plan,
                     'TXN-'.$commission->id,
-                    $commission->transaction_date->format('Y-m-d'),
+                    $commission->store->name,
                     $commission->gross_amount,
                     $commission->commission_rate.'%',
                     $commission->commission_amount,
-                    ucfirst($commission->effective_status),
+                    $commission->transaction_date->format('Y-m-d'),
+                    $commission->status_label,
                 ]);
             }
 
@@ -138,10 +146,10 @@ class EarningsController extends Controller
     private function resolveDateRange(string $range): array
     {
         return match ($range) {
+            'this_month' => [now()->startOfMonth(), now()->endOfMonth()],
             'last_month' => [now()->subMonthNoOverflow()->startOfMonth(), now()->subMonthNoOverflow()->endOfMonth()],
             'last_7_days' => [now()->subDays(7), now()],
-            'all_time' => [null, null],
-            default => [now()->startOfMonth(), now()->endOfMonth()], // this_month
+            default => [null, null], // all_time
         };
     }
 }

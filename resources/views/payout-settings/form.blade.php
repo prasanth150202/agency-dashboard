@@ -81,6 +81,21 @@
                 <p class="mt-1.5 text-xs text-rose-600">{{ $message }}</p>
             @enderror
         </div>
+
+        <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-700">Account Type</label>
+            <select
+                name="account_type"
+                class="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100"
+            >
+                @php $selectedType = old('account_type', $account->account_type ?? 'savings'); @endphp
+                <option value="savings" @selected($selectedType === 'savings')>Savings</option>
+                <option value="current" @selected($selectedType === 'current')>Current</option>
+            </select>
+            @error('account_type')
+                <p class="mt-1.5 text-xs text-rose-600">{{ $message }}</p>
+            @enderror
+        </div>
     </div>
 
     <div x-show="method === 'upi'" x-cloak class="space-y-4">

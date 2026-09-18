@@ -36,17 +36,12 @@
                         <span class="text-ink-500">— waiting for BRIX to be installed on Shopify</span>
                     </div>
                     <div class="flex items-center gap-2.5">
-                        <button
-                            type="button"
-                            x-data
-                            x-on:click="$dispatch('open-modal', 'add-store')"
-                            class="text-sm font-medium text-brix-600 hover:text-brix-700"
-                        >
-                            Continue
-                        </button>
-                        <a href="{{ route('stores.index') }}" class="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-900">
-                            <x-lucide-refresh-cw class="h-3.5 w-3.5" /> Refresh
-                        </a>
+                        <form method="POST" action="{{ route('stores.connect.cancel', $onboarding) }}">
+                            @csrf
+                            <button type="submit" class="text-sm font-medium text-ink-500 hover:text-rose-600">
+                                Cancel
+                            </button>
+                        </form>
                     </div>
                 </div>
             @endforeach

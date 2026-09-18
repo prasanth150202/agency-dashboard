@@ -58,7 +58,7 @@ Alpine.data('profileMenu', () => ({
     },
 }));
 
-Alpine.data('requestPayoutModal', (availableBalance) => ({
+Alpine.data('requestPayoutModal', (availableBalance, currencySymbol = '₹') => ({
     show: false,
     amount: availableBalance,
     submitting: false,

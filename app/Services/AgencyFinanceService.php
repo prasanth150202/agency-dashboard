@@ -7,6 +7,7 @@ use App\Models\Organisation;
 use App\Models\Payout;
 use App\Models\PlatformSetting;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /** 
  * The single source of truth for every agency balance figure shown in
@@ -19,13 +20,18 @@ class AgencyFinanceService
     public function __construct(private readonly Organisation $organisation) {}
 
     /**
-     * Available Balance = realized commission still available
-     *                    - already-paid-out payouts
-     *                    - payouts currently pending/processing (reserved)
+     * Available Balance = commissions whose effective status is
+     * "available" right now.
      *
      * A commission counts as "available" once its holding period has
      * lifted (Commission::effective_status), even if the stored status
-     * column hasn't been flipped by a background job yet.
+     * column hasn't been flipped by a background job yet. Once a payout
+     * claims a commission (see claimCommissionsForPayout()), that
+     * commission's status moves to IN_PAYOUT/PAID and this sum already
+     * excludes it — so, unlike before commission-level claiming existed,
+     * this must NOT also subtract reservedForPendingPayouts()/paid
+     * payout totals, or a claimed commission's value would be counted
+     * as "reserved" twice.
      */
     public function availableBalance(): float
     {
@@ -34,17 +40,16 @@ class AgencyFinanceService
             ->effectivelyAvailable()
             ->sum('commission_amount');
 
-        $paidOut = Payout::query()
-            ->where('organisation_id', $this->organisation->id)
-            ->where('status', Payout::STATUS_PAID)
-            ->sum('amount');
-
-        $reserved = $this->reservedForPendingPayouts();
-
-        return round((float) $available - (float) $paidOut - $reserved, 2);
+        return round((float) $available, 2);
     }
 
-    /** Money already earmarked by payout requests still awaiting a decision. */
+    /**
+     * Money currently earmarked by payout requests still awaiting a
+     * decision — for display only (e.g. "Pending Payouts" /
+     * "Processing" KPI tiles). Not part of availableBalance(); the
+     * commissions those payouts claimed are already excluded from it via
+     * their own IN_PAYOUT status.
+     */
     public function reservedForPendingPayouts(): float
     {
         return (float) Payout::query()
@@ -94,6 +99,52 @@ class AgencyFinanceService
             ->where('organisation_id', $this->organisation->id)
             ->where('status', Payout::STATUS_PAID)
             ->sum('amount');
+    }
+
+    /**
+     * Sum of commissions that have been fully paid — distinct from
+     * totalPaid() (sum of Payout rows), since a paid payout can bundle
+     * several commissions and this is the commission-side view of the
+     * same fact. Used by the Commissions page's "Paid" KPI.
+     */
+    public function commissionsPaid(): float
+    {
+        return (float) Commission::query()
+            ->where('organisation_id', $this->organisation->id)
+            ->where('status', Commission::STATUS_PAID)
+            ->sum('commission_amount');
+    }
+
+    /**
+     * Greedily claims the oldest currently-claimable commissions (locked
+     * for update — must be called inside a transaction) until their sum
+     * covers $amount, or until claimable commissions run out. No
+     * commission is ever split across two payouts — whole rows only.
+     * Callers are responsible for linking + status changes on the
+     * returned rows inside the same transaction.
+     */
+    public function claimCommissionsForPayout(float $amount): Collection
+    {
+        $rows = Commission::query()
+            ->where('organisation_id', $this->organisation->id)
+            ->effectivelyAvailable()
+            ->orderBy('transaction_date')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $claimed = collect();
+        $sum = 0.0;
+
+        foreach ($rows as $row) {
+            if ($sum >= $amount) {
+                break;
+            }
+            $claimed->push($row);
+            $sum += (float) $row->commission_amount;
+        }
+
+        return $claimed;
     }
 
     public function processingPayouts(): float

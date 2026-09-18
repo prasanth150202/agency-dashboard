@@ -26,6 +26,7 @@ class PayoutAccount extends Model
         'account_number',
         'account_last4',
         'ifsc_code',
+        'account_type',
         'upi_id',
         'verification_status',
     ];
@@ -64,5 +65,14 @@ class PayoutAccount extends Model
     public function getMethodLabelAttribute(): string
     {
         return $this->method === self::METHOD_UPI ? 'UPI' : 'Bank Transfer';
+    }
+
+    public function getAccountTypeLabelAttribute(): ?string
+    {
+        return match ($this->account_type) {
+            'current' => 'Current',
+            'savings' => 'Savings',
+            default => null,
+        };
     }
 }

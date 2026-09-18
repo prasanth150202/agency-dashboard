@@ -25,6 +25,18 @@ class Store extends Model
 
     public const AUTHORIZATION_STATUSES = ['NOT_AUTHORIZED', 'AUTHORIZING', 'AUTHORIZED', 'EXPIRED', 'REVOKED'];
 
+    /**
+     * Display labels for the BRIX Shopify app's real plan_key values
+     * (Cart_ninja_combo1's app/config/plans.js — the single source of
+     * truth for pricing/plans). Used by LocalStoreSync to translate a
+     * mirrored plan_key into this column's existing free-text format.
+     */
+    public const PLAN_LABELS = [
+        'free' => 'Free',
+        'starter' => 'Starter',
+        'pro' => 'Pro',
+    ];
+
     protected $fillable = [
         'organisation_id',
         'name',

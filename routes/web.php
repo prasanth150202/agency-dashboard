@@ -3,7 +3,6 @@
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EarningsController;
-use App\Http\Controllers\FinanceOverviewController;
 use App\Http\Controllers\Internal\AgencyShopifyWebhookController;
 use App\Http\Controllers\Internal\ShopifyWebhookController;
 use App\Http\Controllers\NotificationController;
@@ -33,20 +32,24 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
     Route::get('/stores/connect/wait/{token}', [StoreConnectionController::class, 'wait'])->name('stores.connect.wait');
     Route::get('/stores/connect/status/{token}', [StoreConnectionController::class, 'status'])->name('stores.connect.status');
     Route::get('/stores/connect/install/{token}', [StoreConnectionController::class, 'install'])->name('stores.connect.install');
+    Route::post('/stores/connect/cancel/{onboarding}', [StoreConnectionController::class, 'cancel'])->name('stores.connect.cancel');
     Route::post('/stores/{store}/authorize', [StoreConnectionController::class, 'authorize'])->name('stores.authorize');
     Route::post('/stores/{store}/activate', [StoreConnectionController::class, 'activate'])->name('stores.activate');
     Route::post('/stores/{store}/reconnect', [StoreConnectionController::class, 'reconnect'])->name('stores.reconnect');
 
     Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics');
 
-    Route::get('/overview', [FinanceOverviewController::class, 'index'])->name('overview');
-
+    // This is the agency's "Commissions" page — kept on the existing
+    // /earnings route/name to avoid a churny rename; only the sidebar
+    // label and page content changed. /overview (a near-duplicate
+    // summary) was merged into this page rather than kept alongside it.
     Route::get('/earnings', [EarningsController::class, 'index'])->name('earnings');
     Route::get('/earnings/export', [EarningsController::class, 'export'])->name('earnings.export');
 
     Route::get('/payouts', [PayoutController::class, 'index'])->name('payouts');
     Route::post('/payouts/request', [PayoutController::class, 'store'])->name('payouts.request');
     Route::get('/payouts/{payout}', [PayoutController::class, 'show'])->name('payouts.show');
+    Route::post('/payouts/{payout}/cancel', [PayoutController::class, 'cancel'])->name('payouts.cancel');
 
     Route::get('/payout-settings', [PayoutSettingsController::class, 'index'])->name('payout-settings');
     Route::post('/payout-settings', [PayoutSettingsController::class, 'store'])->name('payout-settings.store');

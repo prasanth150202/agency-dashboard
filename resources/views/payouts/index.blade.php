@@ -1,5 +1,6 @@
+@php use App\Support\Currency; @endphp
 <x-app-layout title="Payouts">
-    <div x-data="requestPayoutModal({{ $metrics['available'] }})">
+    <div x-data="requestPayoutModal({{ $metrics['available'] }}, '{{ Currency::symbol($organisation->currency) }}')">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
                 <h2 class="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">Payouts</h2>
@@ -21,10 +22,10 @@
 
         @if (! $canRequestPayout && ! $hasActiveRequest)
             <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Available balance: ₹{{ number_format($metrics['available'], 2) }} · Minimum payout amount: ₹{{ number_format($minimumPayout, 2) }}
+                Available balance: {{ Currency::format($metrics['available'], $organisation->currency) }} · Minimum payout amount: {{ Currency::format($minimumPayout, $organisation->currency) }}
                 @php $remaining = max(0, $minimumPayout - $metrics['available']); @endphp
                 @if ($remaining > 0)
-                    · Earn ₹{{ number_format($remaining, 2) }} more to request a payout.
+                    · Earn {{ Currency::format($remaining, $organisation->currency) }} more to request a payout.
                 @endif
             </div>
         @elseif ($hasActiveRequest)
@@ -34,10 +35,10 @@
         @endif
 
         <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <x-metric-card label="Available Balance" :value="'₹' . number_format($metrics['available'], 2)" icon="wallet" prominent />
-            <x-metric-card label="Pending Payouts" :value="'₹' . number_format($metrics['pending'], 2)" icon="clock" />
-            <x-metric-card label="Processing" :value="'₹' . number_format($metrics['processing'], 2)" icon="loader" />
-            <x-metric-card label="Paid" :value="'₹' . number_format($metrics['paid'], 2)" icon="circle-check-big" />
+            <x-metric-card label="Available Balance" :value="Currency::format($metrics['available'], $organisation->currency)" icon="wallet" prominent />
+            <x-metric-card label="Pending Payouts" :value="Currency::format($metrics['pending'], $organisation->currency)" icon="clock" />
+            <x-metric-card label="Processing" :value="Currency::format($metrics['processing'], $organisation->currency)" icon="loader" />
+            <x-metric-card label="Paid" :value="Currency::format($metrics['paid'], $organisation->currency)" icon="circle-check-big" />
         </div>
 
         {{-- Payout account summary --}}
@@ -91,30 +92,50 @@
                                 <th class="px-5 py-3">Requested</th>
                                 <th class="px-5 py-3">Status</th>
                                 <th class="px-5 py-3">Reference</th>
+                                <th class="px-5 py-3"></th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-ink-100">
                             @foreach ($transactions as $payout)
-                                <tr class="hover:bg-ink-50">
+                                <tr class="hover:bg-ink-50" x-data="{ cancelling: false }">
                                     <td class="whitespace-nowrap px-5 py-3.5 font-medium">
                                         <a href="{{ route('payouts.show', $payout) }}" class="text-brix-600 hover:text-brix-700">
                                             {{ $payout->payout_code ?? '—' }}
                                         </a>
                                     </td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">₹{{ number_format((float) $payout->amount, 2) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ Currency::format($payout->amount, $payout->currency) }}</td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $payout->payment_method_label }}</td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $payout->requested_at?->format('M j') ?? $payout->date->format('M j') }}</td>
                                     <td class="whitespace-nowrap px-5 py-3.5">
                                         <x-status-badge
                                             :status="match($payout->status) {
                                                 'paid' => 'active',
-                                                'pending', 'processing' => 'attention',
+                                                'pending', 'approved', 'processing' => 'attention',
+                                                'rejected', 'cancelled', 'failed' => 'offline',
                                                 default => 'inactive',
                                             }"
                                             :label="$payout->status_label"
                                         />
                                     </td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-500">{{ $payout->provider_payout_id ?? '—' }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right">
+                                        @if ($payout->status === 'pending')
+                                            <form
+                                                method="POST"
+                                                action="{{ route('payouts.cancel', $payout) }}"
+                                                x-on:submit="cancelling = true"
+                                            >
+                                                @csrf
+                                                <button
+                                                    type="submit"
+                                                    x-bind:disabled="cancelling"
+                                                    class="text-sm font-medium text-rose-600 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>

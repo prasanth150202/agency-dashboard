@@ -39,6 +39,9 @@
                             <div class="flex justify-between"><dt class="text-ink-500">Account Holder</dt><dd class="font-medium text-ink-900">{{ $account->account_holder_name }}</dd></div>
                             <div class="flex justify-between"><dt class="text-ink-500">Account Number</dt><dd class="font-medium text-ink-900">{{ $account->masked_account }}</dd></div>
                             <div class="flex justify-between"><dt class="text-ink-500">IFSC Code</dt><dd class="font-medium text-ink-900">{{ $account->ifsc_code }}</dd></div>
+                            @if ($account->account_type_label)
+                                <div class="flex justify-between"><dt class="text-ink-500">Account Type</dt><dd class="font-medium text-ink-900">{{ $account->account_type_label }}</dd></div>
+                            @endif
                         @else
                             <div class="flex justify-between"><dt class="text-ink-500">UPI ID</dt><dd class="font-medium text-ink-900">{{ $account->upi_id }}</dd></div>
                         @endif

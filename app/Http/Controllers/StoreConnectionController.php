@@ -191,6 +191,30 @@ class StoreConnectionController extends Controller
     }
 
     /**
+     * Abandon a pending onboarding attempt from the Stores index — e.g.
+     * the agency gave up waiting for the merchant to install BRIX. Never
+     * touches brix_superadmin's stores/agency_stores rows; only marks this
+     * onboarding attempt itself FAILED so it drops off the pending list.
+     */
+    public function cancel(Request $request, AgencyStoreOnboarding $onboarding): RedirectResponse
+    {
+        /** @var Organisation $organisation */
+        $organisation = $request->attributes->get('currentOrganisation');
+        $agency = $organisation->brixAgency();
+
+        abort_unless((int) $onboarding->agency_id === (int) $agency->id, 404);
+
+        $onboarding->update(['status' => 'FAILED', 'failure_reason' => 'Cancelled by agency.']);
+
+        BrixActivityLog::record('STORE_CONNECTION_FAILED', $agency->id, $onboarding->created_store_id, [
+            'shop_domain' => $onboarding->shop_domain,
+            'reason' => 'cancelled_by_agency',
+        ], $request);
+
+        return redirect()->route('stores.index')->with('info', 'Connection attempt cancelled.');
+    }
+
+    /**
      * "Allow this store to be managed from your agency dashboard." A real
      * server-side operation — not a second Shopify OAuth flow. Store-
      * scoped (not token-scoped) so it also works from the Stores index

@@ -31,6 +31,7 @@
         <span class="text-xs font-medium text-ink-500">
             {{ $store->active_modules_count }} / {{ $store->total_modules_count }} modules active
         </span>
+        <span class="text-xs font-medium text-ink-500">{{ $store->plan }} plan</span>
     </div>
 
     <div class="mt-3 flex items-center gap-2">

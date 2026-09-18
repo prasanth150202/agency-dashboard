@@ -39,6 +39,7 @@ class PayoutSettingsController extends Controller
             'account_number' => ['required_if:method,'.PayoutAccount::METHOD_BANK_TRANSFER, 'nullable', 'digits_between:6,20'],
             'account_number_confirmation' => ['required_if:method,'.PayoutAccount::METHOD_BANK_TRANSFER, 'nullable', 'same:account_number'],
             'ifsc_code' => ['required_if:method,'.PayoutAccount::METHOD_BANK_TRANSFER, 'nullable', 'string', 'max:20'],
+            'account_type' => ['required_if:method,'.PayoutAccount::METHOD_BANK_TRANSFER, 'nullable', Rule::in(['savings', 'current'])],
             'upi_id' => ['required_if:method,'.PayoutAccount::METHOD_UPI, 'nullable', 'string', 'max:255', 'regex:/^[\w.\-]+@[\w.\-]+$/'],
         ], [
             'account_number_confirmation.same' => 'Bank account numbers do not match.',
@@ -55,6 +56,7 @@ class PayoutSettingsController extends Controller
             $payload['account_number'] = $validated['account_number'];
             $payload['account_last4'] = substr($validated['account_number'], -4);
             $payload['ifsc_code'] = strtoupper($validated['ifsc_code']);
+            $payload['account_type'] = $validated['account_type'];
             $payload['upi_id'] = null;
         } else {
             $payload['upi_id'] = $validated['upi_id'];
@@ -62,12 +64,22 @@ class PayoutSettingsController extends Controller
             $payload['account_number'] = null;
             $payload['account_last4'] = null;
             $payload['ifsc_code'] = null;
+            $payload['account_type'] = null;
         }
 
         PayoutAccount::updateOrCreate(
             ['organisation_id' => $organisation->id],
             $payload
         );
+
+        // The audit trail visible to the agency for this domain — no
+        // separate audit_logs table exists here, so this reuses the
+        // existing notifications system rather than introducing one.
+        $organisation->notifications()->create([
+            'type' => 'bank_details_updated',
+            'title' => 'Payout details updated',
+            'message' => 'Your payout account details were updated and are now pending verification.',
+        ]);
 
         return redirect()
             ->route('payout-settings')

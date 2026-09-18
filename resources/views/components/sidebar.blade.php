@@ -11,15 +11,14 @@
         [
             'label' => 'Finance',
             'items' => [
-                ['label' => 'Overview', 'icon' => 'gauge', 'route' => 'overview', 'active' => request()->routeIs('overview')],
-                ['label' => 'Earnings', 'icon' => 'indian-rupee', 'route' => 'earnings', 'active' => request()->routeIs('earnings*')],
+                ['label' => 'Commissions', 'icon' => 'indian-rupee', 'route' => 'earnings', 'active' => request()->routeIs('earnings*')],
                 ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'payouts', 'active' => request()->routeIs('payouts*')],
             ],
         ],
         [
             'label' => 'Settings',
             'items' => [
-                ['label' => 'Payout Settings', 'icon' => 'landmark', 'route' => 'payout-settings', 'active' => request()->routeIs('payout-settings')],
+                ['label' => 'Bank Details', 'icon' => 'landmark', 'route' => 'payout-settings', 'active' => request()->routeIs('payout-settings')],
             ],
         ],
     ];

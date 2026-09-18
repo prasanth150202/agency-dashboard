@@ -1,7 +1,10 @@
 @props(['minimumPayout', 'availableBalance'])
 
 @php
+    use App\Support\Currency;
+
     $account = $currentOrganisation->payoutAccount;
+    $currency = $currentOrganisation->currency;
 @endphp
 
 <div
@@ -38,7 +41,7 @@
                     <dl class="mt-5 space-y-2.5 rounded-xl bg-ink-50 p-4 text-sm">
                         <div class="flex items-center justify-between">
                             <dt class="text-ink-500">Amount</dt>
-                            <dd class="font-semibold text-ink-900" x-text="'₹' + success.amount"></dd>
+                            <dd class="font-semibold text-ink-900" x-text="currencySymbol + success.amount"></dd>
                         </div>
                         <div class="flex items-center justify-between">
                             <dt class="text-ink-500">Payout ID</dt>
@@ -119,13 +122,13 @@
 
                         <div class="mt-5 rounded-xl bg-ink-50 p-4">
                             <p class="text-xs font-medium text-ink-500">Available Balance</p>
-                            <p class="mt-1 text-xl font-semibold text-ink-900">₹{{ number_format($availableBalance, 2) }}</p>
+                            <p class="mt-1 text-xl font-semibold text-ink-900">{{ Currency::format($availableBalance, $currency) }}</p>
                         </div>
 
                         <div class="mt-4">
                             <label class="mb-1.5 block text-sm font-medium text-ink-700">Amount to Withdraw</label>
                             <div class="relative">
-                                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
+                                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">{{ Currency::symbol($currency) }}</span>
                                 <input
                                     type="number"
                                     step="0.01"
@@ -133,7 +136,7 @@
                                     class="w-full rounded-lg border border-ink-200 py-2 pl-7 pr-3 text-sm text-ink-900 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100"
                                 >
                             </div>
-                            <p class="mt-1.5 text-xs text-ink-400">Minimum payout: ₹{{ number_format($minimumPayout, 2) }}</p>
+                            <p class="mt-1.5 text-xs text-ink-400">Minimum payout: {{ Currency::format($minimumPayout, $currency) }}</p>
                         </div>
 
                         <div class="mt-4">

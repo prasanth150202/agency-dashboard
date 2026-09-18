@@ -93,6 +93,17 @@ class Organisation extends Model
     }
 
     /**
+     * This organisation's financial currency (organisation_settings.currency),
+     * falling back to INR only when settings haven't been created yet.
+     * The one place Commission/Payout display code should read currency
+     * from — never hardcode a symbol.
+     */
+    public function getCurrencyAttribute(): string
+    {
+        return $this->settings?->currency ?? 'INR';
+    }
+
+    /**
      * The real agency record in brix_superadmin that this organisation's
      * login/session is bridged to. Auto-provisions one on first use
      * (findOrCreate by brix_agency_id, falling back to creating a fresh
