@@ -3,8 +3,8 @@
 
     $steps = [
         ['label' => 'Requested', 'done' => (bool) $payout->requested_at, 'at' => $payout->requested_at],
+        ['label' => 'Under Review', 'done' => in_array($payout->status, ['under_review', 'approved', 'processing', 'paid']), 'at' => $payout->reviewed_at],
         ['label' => 'Approved', 'done' => in_array($payout->status, ['approved', 'processing', 'paid']), 'at' => $payout->approved_at],
-        ['label' => 'Processing', 'done' => in_array($payout->status, ['processing', 'paid']), 'at' => $payout->processing_at],
         ['label' => 'Paid', 'done' => $payout->status === 'paid', 'at' => $payout->paid_at],
     ];
 @endphp
@@ -31,11 +31,11 @@
                 <x-status-badge
                     :status="match($payout->status) {
                         'paid' => 'active',
-                        'pending', 'approved', 'processing' => 'attention',
+                        'pending', 'under_review', 'approved', 'processing' => 'attention',
                         'rejected', 'cancelled', 'failed' => 'offline',
                         default => 'inactive',
                     }"
-                    :label="$payout->status === 'pending' ? 'Pending Review' : $payout->status_label"
+                    :label="match($payout->status) { 'pending' => 'Pending Review', 'under_review' => 'Under Review', default => $payout->status_label }"
                 />
             </div>
 
@@ -62,10 +62,10 @@
                         <dd class="mt-1 font-medium text-ink-900">{{ $payout->paid_at->format('M j, Y') }}</dd>
                     </div>
                 @endif
-                @if ($payout->provider_payout_id)
-                    <div>
-                        <dt class="text-ink-500">Transaction Reference</dt>
-                        <dd class="mt-1 font-medium text-ink-900">{{ $payout->provider_payout_id }}</dd>
+                @if ($payout->notes)
+                    <div class="col-span-2">
+                        <dt class="text-ink-500">Payment Request Notes</dt>
+                        <dd class="mt-1 font-medium text-ink-900">{{ $payout->notes }}</dd>
                     </div>
                 @endif
             </dl>
@@ -123,15 +123,17 @@
                 <h3 class="text-sm font-semibold text-ink-900">Commission Breakdown</h3>
             </div>
 
-            @if ($payout->commissions->isEmpty())
+            @if ($payout->commissions->isEmpty() && $payout->referralCommissions->isEmpty())
                 <p class="px-5 py-6 text-sm text-ink-400">No commission breakdown available for this payout.</p>
             @else
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm">
                         <thead>
                             <tr class="border-b border-ink-100 text-xs font-medium uppercase tracking-wide text-ink-400">
-                                <th class="px-5 py-3">Order</th>
+                                <th class="px-5 py-3">Commission</th>
                                 <th class="px-5 py-3">Store</th>
+                                <th class="px-5 py-3">Date</th>
+                                <th class="px-5 py-3 text-right">Rate</th>
                                 <th class="px-5 py-3 text-right">Amount</th>
                             </tr>
                         </thead>
@@ -140,12 +142,59 @@
                                 <tr>
                                     <td class="whitespace-nowrap px-5 py-3 font-medium text-ink-900">TXN-{{ $commission->id }}</td>
                                     <td class="whitespace-nowrap px-5 py-3 text-ink-600">{{ $commission->store->name ?? '—' }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-ink-500">{{ $commission->created_at?->format('M j, Y') }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-right text-ink-500">{{ $commission->commission_rate }}%</td>
                                     <td class="whitespace-nowrap px-5 py-3 text-right font-medium text-ink-900">{{ Currency::format($commission->pivot->amount, $payout->currency) }}</td>
+                                </tr>
+                            @endforeach
+                            @foreach ($payout->referralCommissions as $commission)
+                                <tr>
+                                    <td class="whitespace-nowrap px-5 py-3 font-medium text-ink-900">REF-{{ $commission->id }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-ink-600">{{ $commission->store->store_name ?? $commission->store->shop_domain ?? '—' }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-ink-500">{{ $commission->created_at?->format('M j, Y') }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-right text-ink-500">{{ $commission->commission_rate }}%</td>
+                                    <td class="whitespace-nowrap px-5 py-3 text-right font-medium text-ink-900">{{ Currency::format($commission->pivot->amount, $commission->currency) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
                     </table>
                 </div>
+            @endif
+        </div>
+
+        <div class="overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
+            <div class="border-b border-ink-100 px-5 py-4">
+                <h3 class="text-sm font-semibold text-ink-900">Bank Transfer Information</h3>
+            </div>
+            @if ($payout->payoutAccount)
+                <dl class="grid grid-cols-2 gap-4 px-5 py-4 text-sm">
+                    <div><dt class="text-ink-500">Account Holder</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->payoutAccount->account_holder_name ?? '—' }}</dd></div>
+                    <div><dt class="text-ink-500">Bank</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->payoutAccount->bank_name ?? '—' }}</dd></div>
+                    <div><dt class="text-ink-500">Account Number</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->payoutAccount->masked_account ?? '—' }}</dd></div>
+                    @if ($payout->payoutAccount->method === 'bank_transfer')
+                        <div><dt class="text-ink-500">IFSC</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->payoutAccount->ifsc_code ?? '—' }}</dd></div>
+                    @endif
+                </dl>
+            @else
+                <p class="px-5 py-6 text-sm text-ink-400">No payout account on file.</p>
+            @endif
+        </div>
+
+        <div class="overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
+            <div class="border-b border-ink-100 px-5 py-4">
+                <h3 class="text-sm font-semibold text-ink-900">Admin Payment Information</h3>
+            </div>
+            @if ($payout->status === 'paid')
+                <dl class="grid grid-cols-2 gap-4 px-5 py-4 text-sm">
+                    <div><dt class="text-ink-500">Transfer Reference</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->transfer_reference ?? '—' }}</dd></div>
+                    <div><dt class="text-ink-500">Transfer Date</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->transfer_date?->format('M j, Y') ?? '—' }}</dd></div>
+                    <div><dt class="text-ink-500">Paid By</dt><dd class="mt-1 font-medium text-ink-900">BRIX Admin</dd></div>
+                    @if ($payout->payment_notes)
+                        <div class="col-span-2"><dt class="text-ink-500">Admin Notes</dt><dd class="mt-1 font-medium text-ink-900">{{ $payout->payment_notes }}</dd></div>
+                    @endif
+                </dl>
+            @else
+                <p class="px-5 py-6 text-sm text-ink-400">Not paid yet.</p>
             @endif
         </div>
     </div>

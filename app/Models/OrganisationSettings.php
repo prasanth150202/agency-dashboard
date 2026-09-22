@@ -12,6 +12,7 @@ class OrganisationSettings extends Model
     protected $fillable = [
         'organisation_id',
         'currency',
+        'commission_revenue_source',
         'available_balance',
         'lifetime_earnings',
         'default_commission_rate',

@@ -26,9 +26,16 @@
                             ['label' => 'Dashboard', 'icon' => 'layout-dashboard', 'route' => 'admin.dashboard', 'active' => request()->routeIs('admin.dashboard')],
                             ['label' => 'Partners', 'icon' => 'users', 'route' => 'admin.partners.index', 'active' => request()->routeIs('admin.partners.*')],
                             ['label' => 'Stores', 'icon' => 'store', 'route' => 'admin.stores.index', 'active' => request()->routeIs('admin.stores.*')],
-                            ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'admin.payouts.index', 'active' => request()->routeIs('admin.payouts.*')],
+                            ['label' => 'Leads', 'icon' => 'user-plus', 'route' => 'admin.leads.index', 'active' => request()->routeIs('admin.leads.*')],
+                            ['label' => 'Referral Links', 'icon' => 'link-2', 'route' => 'admin.referral-links.index', 'active' => request()->routeIs('admin.referral-links.*')],
+                            ['label' => 'Tracking', 'icon' => 'mouse-pointer-click', 'route' => 'admin.tracking.index', 'active' => request()->routeIs('admin.tracking.*')],
+                            ['label' => 'Revenue', 'icon' => 'trending-up', 'route' => 'admin.revenue.index', 'active' => request()->routeIs('admin.revenue.*')],
+                            ['label' => 'Commissions', 'icon' => 'indian-rupee', 'route' => 'admin.commissions.index', 'active' => request()->routeIs('admin.commissions.*')],
+                            ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'admin.payouts.index', 'active' => request()->routeIs('admin.payouts.*'), 'badge' => \App\Models\Payout::whereIn('status', \App\Models\Payout::RESERVING_STATUSES)->count()],
                             ['label' => 'Settings', 'icon' => 'settings', 'route' => 'admin.settings.index', 'active' => request()->routeIs('admin.settings.*')],
                         ];
+
+                        $navItems = collect($navItems)->filter(fn (array $item) => \Illuminate\Support\Facades\Route::has($item['route']))->values()->all();
                     @endphp
 
                     @foreach ($navItems as $item)
@@ -37,7 +44,10 @@
                             class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors {{ $item['active'] ? 'bg-white/10 text-white' : 'text-ink-300 hover:bg-white/5 hover:text-white' }}"
                         >
                             <x-dynamic-component :component="'lucide-' . $item['icon']" class="h-[18px] w-[18px] shrink-0" />
-                            {{ $item['label'] }}
+                            <span class="flex-1">{{ $item['label'] }}</span>
+                            @if (! empty($item['badge']))
+                                <span class="rounded-full bg-brix-600 px-2 py-0.5 text-xs font-semibold text-white">{{ $item['badge'] }}</span>
+                            @endif
                         </a>
                     @endforeach
                 </nav>

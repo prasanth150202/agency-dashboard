@@ -1,20 +1,31 @@
 <?php
 
+use App\Http\Controllers\AccountMappingController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\CourseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EarningsController;
 use App\Http\Controllers\Internal\AgencyShopifyWebhookController;
+use App\Http\Controllers\LeadController;
 use App\Http\Controllers\Internal\ShopifyWebhookController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganisationController;
 use App\Http\Controllers\PayoutController;
 use App\Http\Controllers\PayoutSettingsController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PromoCodeController;
+use App\Http\Controllers\Public\ReferralRedirectController;
+use App\Http\Controllers\Public\ReferralStoreController;
 use App\Http\Controllers\Public\StoreConnectionSuccessController;
+use App\Http\Controllers\QrReferralController;
+use App\Http\Controllers\ReferralLinkController;
+use App\Http\Controllers\RevenueController;
+use App\Http\Controllers\RewardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StoreConnectionController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\StoreModuleController;
+use App\Http\Controllers\TrackingController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -39,6 +50,32 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
 
     Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics');
 
+    Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+    Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
+    Route::get('/leads/{lead}', [LeadController::class, 'show'])->name('leads.show');
+    Route::post('/leads/{lead}/stage', [LeadController::class, 'updateStage'])->name('leads.stage');
+
+
+    Route::get('/qr', [QrReferralController::class, 'index'])->name('qr.index');
+    Route::get('/qr/{trackingLink}/download', [QrReferralController::class, 'download'])->name('qr.download');
+
+    Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue.index');
+
+    Route::get('/account-mapping',[AccountMappingController::class, 'index'])->name('account-mapping.index');
+
+    Route::get('/courses', [CourseController::class, 'index'])->name('courses.index');
+    Route::get('/promo-codes', [PromoCodeController::class, 'index'])->name('promo-codes.index');
+    Route::get('/rewards', [RewardController::class, 'index'])->name('rewards.index');
+
+    Route::get('/tracking', [TrackingController::class, 'index'])->name('tracking.index');
+
+    Route::get('/referral-links', [ReferralLinkController::class, 'index'])->name('referral-links.index');
+    Route::post('/referral-links', [ReferralLinkController::class, 'store'])->name('referral-links.store');
+    Route::put('/referral-links/{trackingLink}', [ReferralLinkController::class, 'update'])->name('referral-links.update');
+    Route::post('/referral-links/{trackingLink}/activate', [ReferralLinkController::class, 'activate'])->name('referral-links.activate');
+    Route::post('/referral-links/{trackingLink}/deactivate', [ReferralLinkController::class, 'deactivate'])->name('referral-links.deactivate');
+    Route::get('/referral-links/{trackingLink}/leads', [ReferralLinkController::class, 'leads'])->name('referral-links.leads');
+
     // This is the agency's "Commissions" page — kept on the existing
     // /earnings route/name to avoid a churny rename; only the sidebar
     // label and page content changed. /overview (a near-duplicate
@@ -56,6 +93,7 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    Route::put('/settings/commission-source', [SettingsController::class, 'updateCommissionSource'])->name('settings.commission-source');
 
     // URL/route names say "partners" (user-facing) — the controller/model
     // underneath stays Organisation, this app's own login/tenant table,
@@ -101,5 +139,22 @@ Route::prefix('internal/shopify')->name('internal.shopify.')->group(function () 
 Route::get('/connect/success/{store}', [StoreConnectionSuccessController::class, 'show'])
     ->middleware(['signed', 'throttle:20,1'])
     ->name('public.stores.connect.success');
+
+// Public, unauthenticated — where a copied referral link (/ref/BRIX-82KD)
+// actually points. Records the click, then redirects to BRIX's Shopify
+// App Store listing; the visitor never sees an Agency Dashboard login.
+Route::get('/ref/{code}', [ReferralRedirectController::class, 'redirect'])
+    ->middleware('throttle:60,1')
+    ->name('public.referral.redirect');
+
+// Store-domain step reached only via the signed, expiring URL that
+// /ref/{code} redirects to (the encrypted click reference is the only
+// parameter). POST shares the same signed URL.
+Route::get('/referral/store/{ref}', [ReferralStoreController::class, 'show'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('public.referral.store');
+Route::post('/referral/store/{ref}', [ReferralStoreController::class, 'submit'])
+    ->middleware(['signed', 'throttle:20,1'])
+    ->name('public.referral.store.submit');
 
 require __DIR__.'/auth.php';

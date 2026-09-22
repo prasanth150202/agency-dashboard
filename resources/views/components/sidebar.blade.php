@@ -1,27 +1,69 @@
 @php
+    // Target partner-portal navigation. An entry renders only once its
+    // route exists, so the menu grows as each module ships and never
+    // links to a page that isn't there yet.
     $sections = [
         [
             'label' => null,
             'items' => [
-                ['label' => 'Dashboard', 'icon' => 'layout-dashboard', 'route' => 'dashboard', 'active' => request()->routeIs('dashboard')],
-                ['label' => 'Stores', 'icon' => 'store', 'route' => 'stores.index', 'active' => request()->routeIs('stores.*')],
-                ['label' => 'Analytics', 'icon' => 'bar-chart-3', 'route' => 'analytics', 'active' => request()->routeIs('analytics')],
+                ['label' => 'Dashboard', 'icon' => 'layout-dashboard', 'route' => 'dashboard', 'match' => 'dashboard'],
+                ['label' => 'Stores', 'icon' => 'store', 'route' => 'stores.index', 'match' => 'stores.*'],
+            ],
+        ],
+        [
+            'label' => 'Growth',
+            'items' => [
+                ['label' => 'Leads', 'icon' => 'users', 'route' => 'leads.index', 'match' => 'leads.*'],
+                ['label' => 'Referral Links', 'icon' => 'link-2', 'route' => 'referral-links.index', 'match' => 'referral-links.*'],
+                ['label' => 'QR Referrals', 'icon' => 'qr-code', 'route' => 'qr.index', 'match' => 'qr.*'],
+                ['label' => 'Tracking', 'icon' => 'mouse-pointer-click', 'route' => 'tracking.index', 'match' => 'tracking.*'],
+                ['label' => 'Account Mapping', 'icon' => 'git-branch', 'route' => 'account-mapping.index', 'match' => 'account-mapping.*'],
             ],
         ],
         [
             'label' => 'Finance',
             'items' => [
-                ['label' => 'Commissions', 'icon' => 'indian-rupee', 'route' => 'earnings', 'active' => request()->routeIs('earnings*')],
-                ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'payouts', 'active' => request()->routeIs('payouts*')],
+                ['label' => 'Revenue', 'icon' => 'trending-up', 'route' => 'revenue.index', 'match' => 'revenue.*'],
+                ['label' => 'Commissions', 'icon' => 'indian-rupee', 'route' => 'earnings', 'match' => 'earnings*'],
+                ['label' => 'Payouts', 'icon' => 'wallet', 'route' => 'payouts', 'match' => 'payouts*'],
+            ],
+        ],
+        [
+            'label' => 'Grow & Earn',
+            'items' => [
+                ['label' => 'Courses', 'icon' => 'graduation-cap', 'route' => 'courses.index', 'match' => 'courses.*'],
+                ['label' => 'Promo Codes', 'icon' => 'ticket', 'route' => 'promo-codes.index', 'match' => 'promo-codes.*'],
+                ['label' => 'Rewards', 'icon' => 'gift', 'route' => 'rewards.index', 'match' => 'rewards.*'],
+            ],
+        ],
+        [
+            'label' => 'Insights',
+            'items' => [
+                ['label' => 'Analytics', 'icon' => 'bar-chart-3', 'route' => 'analytics', 'match' => 'analytics'],
             ],
         ],
         [
             'label' => 'Settings',
             'items' => [
-                ['label' => 'Bank Details', 'icon' => 'landmark', 'route' => 'payout-settings', 'active' => request()->routeIs('payout-settings')],
+                ['label' => 'Settings', 'icon' => 'settings', 'route' => 'settings', 'match' => 'settings*'],
+                ['label' => 'Bank Details', 'icon' => 'landmark', 'route' => 'payout-settings', 'match' => 'payout-settings'],
             ],
         ],
     ];
+
+    $sections = collect($sections)
+        ->map(function (array $section) {
+            $section['items'] = collect($section['items'])
+                ->filter(fn (array $item) => Route::has($item['route']))
+                ->map(fn (array $item) => $item + ['active' => request()->routeIs($item['match'])])
+                ->values()
+                ->all();
+
+            return $section;
+        })
+        ->filter(fn (array $section) => count($section['items']) > 0)
+        ->values()
+        ->all();
 @endphp
 
 {{-- Mobile backdrop --}}

@@ -1,4 +1,8 @@
-@php use App\Support\Currency; @endphp
+@php
+    use App\Services\Referral\ReferralReporting as Money;
+    use App\Support\Currency;
+    $show = fn (string $bucket) => Money::money($summary[$bucket] ?: [$organisation->currency => 0]);
+@endphp
 <x-app-layout title="Commissions">
     <div x-data="{ selected: null }">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -9,10 +13,10 @@
         </div>
 
         <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <x-metric-card label="Total Earned" :value="Currency::format($metrics['total_earned'], $organisation->currency)" icon="trending-up" />
-            <x-metric-card label="Pending" :value="Currency::format($metrics['pending'], $organisation->currency)" icon="clock" />
-            <x-metric-card label="Available" :value="Currency::format($metrics['available'], $organisation->currency)" icon="wallet" prominent />
-            <x-metric-card label="Paid" :value="Currency::format($metrics['paid'], $organisation->currency)" icon="circle-check-big" />
+            <x-metric-card label="Total Earned" :value="$show('total_earned')" icon="trending-up" />
+            <x-metric-card label="Pending" :value="$show('pending')" icon="clock" />
+            <x-metric-card label="Available" :value="$show('available')" icon="wallet" prominent />
+            <x-metric-card label="Paid" :value="$show('paid')" icon="circle-check-big" />
         </div>
 
         <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -50,6 +54,12 @@
                         @endforeach
                     </select>
 
+                    <select name="source" x-data x-on:change="$el.form.submit()" class="rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm font-medium text-ink-700 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100">
+                        <option value="all" @selected($filters['source'] === 'all')>All Sources</option>
+                        <option value="store" @selected($filters['source'] === 'store')>Store commissions</option>
+                        <option value="referral" @selected($filters['source'] === 'referral')>Referral commissions</option>
+                    </select>
+
                     <select name="status" x-data x-on:change="$el.form.submit()" class="rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm font-medium text-ink-700 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100">
                         <option value="all" @selected($filters['status'] === 'all')>All Statuses</option>
                         @foreach ($statusFilters as $status)
@@ -79,6 +89,7 @@
                             <thead>
                                 <tr class="border-b border-ink-100 text-xs font-medium uppercase tracking-wide text-ink-400">
                                     <th class="px-5 py-3">Order ID</th>
+                                    <th class="px-5 py-3">Source</th>
                                     <th class="px-5 py-3">Store</th>
                                     <th class="px-5 py-3 text-right">Order Amount</th>
                                     <th class="px-5 py-3">Rate</th>
@@ -89,37 +100,40 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-ink-100">
-                                @foreach ($commissions as $commission)
+                                @foreach ($commissions as $entry)
                                     <tr class="hover:bg-ink-50">
-                                        <td class="whitespace-nowrap px-5 py-3.5 font-medium text-ink-900">TXN-{{ $commission->id }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-700">{{ $commission->store->name }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3.5 text-right text-ink-700">{{ Currency::format($commission->gross_amount, $organisation->currency) }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ (float) $commission->commission_rate }}%</td>
-                                        <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ Currency::format($commission->commission_amount, $organisation->currency) }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $commission->transaction_date->format('d M Y') }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 font-medium text-ink-900">{{ $entry->reference }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-xs font-medium text-ink-500">{{ $entry->sourceLabel() }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-700">{{ $entry->storeName }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-right text-ink-700">{{ Currency::format($entry->baseAmount, $entry->currency) }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $entry->rate }}%</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ Currency::format($entry->amount, $entry->currency) }}</td>
+                                        <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $entry->date->format('d M Y') }}</td>
                                         <td class="whitespace-nowrap px-5 py-3.5">
-                                            <x-status-badge :status="$commission->badge_status" :label="$commission->status_label" />
+                                            <x-status-badge :status="$entry->badge" :label="$entry->statusLabel" />
                                         </td>
                                         <td class="whitespace-nowrap px-5 py-3.5 text-right">
                                             <button
                                                 type="button"
                                                 x-on:click="selected = @js([
-                                                    'order_id' => 'TXN-' . $commission->id,
-                                                    'store' => $commission->store->name,
-                                                    'domain' => $commission->store->shop_domain,
-                                                    'gross' => number_format((float) $commission->gross_amount, 2),
-                                                    'rate' => (float) $commission->commission_rate,
-                                                    'commission' => number_format((float) $commission->commission_amount, 2),
-                                                    'currency' => $organisation->currency,
-                                                    'status' => $commission->status_label,
-                                                    'badge_status' => $commission->badge_status,
-                                                    'created_at' => $commission->created_at->format('M j, Y g:i A'),
-                                                    'available_at' => $commission->available_at->format('M j, Y g:i A'),
-                                                    'available_reached' => $commission->available_at->isPast(),
-                                                    'in_payout' => in_array($commission->status, ['in_payout', 'paid']),
-                                                    'in_payout_at' => optional($commission->payouts->first())->pivot?->created_at?->format('M j, Y g:i A'),
-                                                    'paid' => $commission->status === 'paid',
-                                                    'paid_at' => optional($commission->payouts->firstWhere('status', 'paid'))->paid_at?->format('M j, Y g:i A'),
+                                                    'order_id' => $entry->reference,
+                                                    'store' => $entry->storeName,
+                                                    'domain' => $entry->shopDomain,
+                                                    'gross' => number_format((float) $entry->baseAmount, 2),
+                                                    'rate' => (float) $entry->rate,
+                                                    'commission' => number_format((float) $entry->amount, 2),
+                                                    'currency' => Currency::symbol($entry->currency),
+                                                    'status' => $entry->statusLabel,
+                                                    'badge_status' => $entry->badge,
+                                                    'source' => $entry->sourceLabel(),
+                                                    'via' => $entry->via,
+                                                    'created_at' => $entry->date->format('M j, Y'),
+                                                    'available_at' => $entry->availableAt?->format('M j, Y g:i A'),
+                                                    'available_reached' => (bool) $entry->availableAt?->isPast(),
+                                                    'in_payout' => in_array($entry->status, ['in_payout', 'paid'], true),
+                                                    'in_payout_at' => $entry->inPayoutAt?->format('M j, Y g:i A'),
+                                                    'paid' => $entry->status === 'paid',
+                                                    'paid_at' => $entry->paidAt?->format('M j, Y g:i A'),
                                                 ])"
                                                 class="text-sm font-medium text-brix-600 hover:text-brix-700"
                                             >
@@ -207,7 +221,7 @@
                             <div class="flex items-start justify-between">
                                 <div>
                                     <h3 class="text-base font-semibold text-ink-900" x-text="selected.order_id"></h3>
-                                    <p class="mt-0.5 text-xs text-ink-500" x-text="selected.store + ' · ' + selected.domain"></p>
+                                    <p class="mt-0.5 text-xs text-ink-500" x-text="selected.store + (selected.domain ? ' · ' + selected.domain : '') + (selected.via ? ' · via ' + selected.via : '')"></p>
                                 </div>
                                 <button type="button" x-on:click="selected = null" class="text-ink-400 hover:text-ink-700">
                                     <x-lucide-x class="h-4 w-4" />
@@ -216,7 +230,7 @@
 
                             <dl class="mt-5 space-y-2.5 text-sm">
                                 <div class="flex items-center justify-between">
-                                    <dt class="text-ink-500">Order Amount</dt>
+                                    <dt class="text-ink-500" x-text="selected.source === 'Referral' ? 'Verified Revenue' : 'Order Amount'"></dt>
                                     <dd class="font-medium text-ink-900" x-text="selected.currency + selected.gross"></dd>
                                 </div>
                                 <div class="flex items-center justify-between">

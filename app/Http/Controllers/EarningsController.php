@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Commission;
 use App\Models\Organisation;
+use App\Services\Finance\LedgerEntry;
+use App\Services\Finance\UnifiedCommissionService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -11,9 +13,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * The Agency Dashboard's "Commissions" page (kept on the historical
- * /earnings route/name — see routes/web.php). Renders the commission
- * ledger, KPI summary, and the right-rail Available Balance / My Stores
- * cards, all scoped to the session-derived organisation.
+ * /earnings route/name — see routes/web.php). Renders the unified commission
+ * ledger — store commissions and referral commissions side by side, each
+ * still in its own table — plus the KPI summary and the right-rail Available
+ * Balance / My Stores cards, all scoped to the session-derived organisation.
  */
 class EarningsController extends Controller
 {
@@ -25,49 +28,26 @@ class EarningsController extends Controller
         /** @var Organisation $organisation */
         $organisation = $request->attributes->get('currentOrganisation');
         $finance = $organisation->finance();
+        $unified = new UnifiedCommissionService($organisation);
 
         $filters = array_merge([
-            'search' => '', 'range' => 'all_time', 'status' => 'all', 'store' => 'all',
-        ], array_filter($request->only(['search', 'range', 'status', 'store']), fn ($v) => $v !== null && $v !== ''));
+            'search' => '', 'range' => 'all_time', 'status' => 'all', 'store' => 'all', 'source' => 'all',
+        ], array_filter($request->only(['search', 'range', 'status', 'store', 'source']), fn ($v) => $v !== null && $v !== ''));
 
         [$rangeStart, $rangeEnd] = $this->resolveDateRange($filters['range']);
 
-        $commissions = $organisation->commissions()
-            ->with(['store', 'payouts'])
-            ->when($rangeStart, fn ($q) => $q->whereBetween('created_at', [$rangeStart, $rangeEnd]))
-            ->when($filters['store'] !== 'all', fn ($q) => $q->where('store_id', $filters['store']))
-            ->when(! empty($filters['search']), function ($q) use ($filters) {
-                $term = $filters['search'];
-                // "Order ID" is displayed/searched as TXN-{id} (see
-                // export() and the ledger view) — there's no separate
-                // real order record to search against, so a "TXN-123"
-                // or bare "123" search matches the commission's own id.
-                $numericId = (int) preg_replace('/\D/', '', $term);
-
-                $q->where(function ($q2) use ($term, $numericId) {
-                    if ($numericId > 0) {
-                        $q2->orWhere('id', $numericId);
-                    }
-                    $q2->orWhere('agency_commission', 'like', "%{$term}%")
-                        ->orWhere('gross_amount', 'like', "%{$term}%")
-                        ->orWhereHas('store', function ($q3) use ($term) {
-                            $q3->where('store_name', 'like', "%{$term}%")->orWhere('shop_domain', 'like', "%{$term}%");
-                        });
-                });
-            })
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->get()
-            // Status filtering happens on visual_status (display-only —
-            // see Commission::getVisualStatusAttribute()), which isn't a
-            // real column to filter by in SQL.
-            ->when($filters['status'] !== 'all', fn ($c) => $c->filter(fn (Commission $row) => $row->visual_status === $filters['status'])->values());
+        $entries = $unified->entries($rangeStart, $rangeEnd, [
+            'search' => $filters['search'],
+            'status' => $filters['status'],
+            'store' => $filters['store'],
+            'source' => in_array($filters['source'], LedgerEntry::SOURCES, true) ? $filters['source'] : null,
+        ]);
 
         $perPage = 15;
-        $page = (int) $request->query('page', 1);
+        $page = max(1, (int) $request->query('page', 1));
         $commissionsPage = new LengthAwarePaginator(
-            $commissions->forPage($page, $perPage)->values(),
-            $commissions->count(),
+            $entries->forPage($page, $perPage)->values(),
+            $entries->count(),
             $perPage,
             $page,
             ['path' => $request->url(), 'query' => $request->query()]
@@ -86,11 +66,9 @@ class EarningsController extends Controller
         return view('earnings.index', [
             'organisation' => $organisation,
             'finance' => $finance,
+            'summary' => $unified->summary(),
             'metrics' => [
-                'total_earned' => $finance->lifetimeEarnings(),
-                'pending' => $finance->pendingCommission(),
                 'available' => $finance->availableBalance(),
-                'paid' => $finance->commissionsPaid(),
             ],
             'commissions' => $commissionsPage,
             'stores' => $stores,
@@ -109,27 +87,26 @@ class EarningsController extends Controller
 
         [$rangeStart, $rangeEnd] = $this->resolveDateRange($request->query('range', 'all_time'));
 
-        $commissions = $organisation->commissions() // never trust anything but the session-scoped org
-            ->with('store')
-            ->when($rangeStart, fn ($q) => $q->whereBetween('created_at', [$rangeStart, $rangeEnd]))
-            ->orderByDesc('created_at')
-            ->get();
+        // Never trust anything but the session-scoped organisation.
+        $entries = (new UnifiedCommissionService($organisation))->entries($rangeStart, $rangeEnd);
 
         $filename = 'brix-commissions-'.now()->format('Y-m-d').'.csv';
 
-        return response()->streamDownload(function () use ($commissions) {
+        return response()->streamDownload(function () use ($entries) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Order ID', 'Store', 'Order Amount', 'Commission Rate', 'Commission', 'Date', 'Status']);
+            fputcsv($out, ['Order ID', 'Source', 'Store', 'Order Amount', 'Commission Rate', 'Commission', 'Currency', 'Date', 'Status']);
 
-            foreach ($commissions as $commission) {
+            foreach ($entries as $entry) {
                 fputcsv($out, [
-                    'TXN-'.$commission->id,
-                    $commission->store->name,
-                    $commission->gross_amount,
-                    $commission->commission_rate.'%',
-                    $commission->agency_commission,
-                    $commission->transaction_date->format('Y-m-d'),
-                    $commission->status_label,
+                    $entry->reference,
+                    $entry->sourceLabel(),
+                    $entry->storeName,
+                    $entry->baseAmount,
+                    $entry->rate.'%',
+                    $entry->amount,
+                    $entry->currency,
+                    $entry->date->format('Y-m-d'),
+                    $entry->statusLabel,
                 ]);
             }
 

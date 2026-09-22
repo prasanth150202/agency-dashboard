@@ -54,6 +54,44 @@
     </div>
 
     <div class="mt-4 max-w-xl rounded-2xl border border-ink-200/70 bg-white p-6 shadow-subtle">
+        <h3 class="text-sm font-semibold text-ink-900">Commission revenue source</h3>
+        <p class="mt-1 text-sm text-ink-500">Which BRIX revenue from your referred stores earns commission. Applies to your whole workspace, not to individual referral links.</p>
+
+        <form method="POST" action="{{ route('settings.commission-source') }}" class="mt-5 space-y-3">
+            @csrf
+            @method('PUT')
+
+            @foreach (['subscription' => 'Subscription', 'usage' => 'Usage', 'both' => 'Both'] as $value => $label)
+                <label class="flex items-center gap-2.5 text-sm text-ink-700">
+                    <input
+                        type="radio"
+                        name="commission_revenue_source"
+                        value="{{ $value }}"
+                        @checked(old('commission_revenue_source', $commissionSource) === $value)
+                        @disabled(($role ?? '') !== 'owner')
+                        class="h-4 w-4 border-ink-300 text-brix-600 focus:ring-brix-100"
+                    >
+                    {{ $label }}
+                </label>
+            @endforeach
+            @error('commission_revenue_source')
+                <p class="text-xs text-rose-600">{{ $message }}</p>
+            @enderror
+
+            <p class="text-xs text-ink-400">Recurring subscription revenue is not yet verifiable, so only verified usage charges currently generate commission.</p>
+
+            @if (($role ?? '') === 'owner')
+                <div class="pt-1">
+                    <button type="submit" class="rounded-lg bg-brix-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brix-700">
+                        Save commission source
+                    </button>
+                </div>
+            @else
+                <p class="text-xs text-ink-400">Only the workspace owner can change this.</p>
+            @endif
+        </form>
+    </div>
+    <div class="mt-4 max-w-xl rounded-2xl border border-ink-200/70 bg-white p-6 shadow-subtle">
         <h3 class="text-sm font-semibold text-ink-900">Account</h3>
         <p class="mt-1 text-sm text-ink-500">Manage your personal profile and password.</p>
         <a href="{{ route('profile.edit') }}" class="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3.5 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">

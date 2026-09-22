@@ -81,4 +81,36 @@
             </table>
         </div>
     </div>
+
+    {{-- Global referral overview --}}
+    <div class="mt-6">
+        <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-ink-900">Referral overview</h3>
+            <form method="GET" class="flex overflow-hidden rounded-lg border border-ink-200">
+                @foreach ([7, 30, 90] as $r)
+                    <a href="{{ request()->fullUrlWithQuery(['range' => $r]) }}" class="px-3 py-1.5 text-xs font-medium {{ $range === $r ? 'bg-ink-900 text-white' : 'bg-white text-ink-600 hover:bg-ink-50' }}">{{ $r }}d</a>
+                @endforeach
+            </form>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <x-metric-card label="Agencies Referring" :value="$agenciesWithReferralActivity" icon="users" />
+            <x-metric-card label="Leads (period)" :value="$referralMetrics['leads']" icon="user-plus" />
+            <x-metric-card label="Active Referred Stores" :value="$referralMetrics['active_stores']" icon="store" />
+            <x-metric-card label="Revenue (period)" :value="collect($referralMetrics['revenue'])->map(fn ($v, $c) => \App\Support\Currency::format((float) $v, $c))->implode(' + ') ?: '—'" icon="trending-up" />
+            <x-metric-card label="Pending Commission" :value="collect($referralMetrics['pending_commission'])->map(fn ($v, $c) => \App\Support\Currency::format((float) $v, $c))->implode(' + ') ?: '—'" icon="clock" />
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-3">
+            <a href="{{ route('admin.leads.index') }}" class="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">
+                <x-lucide-users class="h-4 w-4" /> View Leads
+            </a>
+            <a href="{{ route('admin.revenue.index') }}" class="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">
+                <x-lucide-trending-up class="h-4 w-4" /> View Revenue
+            </a>
+            <a href="{{ route('admin.commissions.index') }}" class="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">
+                <x-lucide-indian-rupee class="h-4 w-4" /> View Commissions
+            </a>
+        </div>
+    </div>
 </x-admin-layout>

@@ -4,11 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Commission;
 use App\Models\Organisation;
+use App\Models\Partners\ActivityLog;
 use App\Models\Payout;
+use App\Models\Referral\ReferralCommission;
+use App\Services\Finance\UnifiedCommissionService;
 use App\Support\Currency;
+use App\Support\DecimalMoney;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use RuntimeException;
@@ -21,10 +26,26 @@ class PayoutController extends Controller
         $organisation = $request->attributes->get('currentOrganisation');
         $finance = $organisation->finance();
 
+        $filter = $request->query('filter', 'all');
+        $search = trim((string) $request->query('search', ''));
+
+        $statusesByFilter = [
+            'pending' => [Payout::STATUS_PENDING, Payout::STATUS_UNDER_REVIEW],
+            'approved' => [Payout::STATUS_APPROVED, Payout::STATUS_PROCESSING],
+            'paid' => [Payout::STATUS_PAID],
+            'rejected' => [Payout::STATUS_REJECTED],
+        ];
+
         $transactions = $organisation->payouts()
+            ->when(isset($statusesByFilter[$filter]), fn ($q) => $q->whereIn('status', $statusesByFilter[$filter]))
+            ->when($search !== '', fn ($q) => $q->where(function ($q) use ($search) {
+                $q->where('payout_code', 'like', "%{$search}%")
+                    ->orWhere('transfer_reference', 'like', "%{$search}%");
+            }))
             ->orderByDesc('requested_at')
             ->orderByDesc('id')
-            ->paginate(10);
+            ->paginate(10)
+            ->withQueryString();
 
         return view('payouts.index', [
             'organisation' => $organisation,
@@ -35,11 +56,14 @@ class PayoutController extends Controller
                 'pending' => $finance->pendingPayouts(),
                 'processing' => $finance->processingPayouts(),
                 'paid' => $finance->totalPaid(),
+                'total_earned' => $finance->lifetimeEarnings(),
             ],
             'minimumPayout' => $finance->minimumPayoutAmount(),
             'canRequestPayout' => $finance->canRequestPayout(),
             'hasActiveRequest' => $finance->hasPendingOrProcessingPayout(),
             'transactions' => $transactions,
+            'filter' => $filter,
+            'search' => $search,
         ]);
     }
 
@@ -74,13 +98,16 @@ class PayoutController extends Controller
 
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'gt:0'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $requestedAmount = round((float) $validated['amount'], 2);
         $currency = $organisation->currency;
+        $requestNotes = $validated['notes'] ?? null;
+        $requestedBy = Auth::id();
 
         try {
-            $payout = DB::transaction(function () use ($organisation, $account, $requestedAmount, $currency) {
+            $payout = DB::transaction(function () use ($organisation, $account, $requestedAmount, $currency, $requestNotes, $requestedBy) {
                 // Lock this organisation's row for the duration of the
                 // check + insert. Concurrent requests for *other*
                 // agencies are completely unaffected — only this one row
@@ -109,12 +136,17 @@ class PayoutController extends Controller
                 // availableBalance() alone would agree with this sum by
                 // construction, but claiming directly means the payout is
                 // never created from a stale/racing read of the balance.
-                $claimed = $finance->claimCommissionsForPayout($requestedAmount);
-                $claimedSum = round((float) $claimed->sum('agency_commission'), 2);
+                // Store commissions and referral commissions (in this
+                // organisation's currency) are claimed together, oldest
+                // first, from the unified commission layer.
+                $requestedCents = DecimalMoney::toCents($requestedAmount);
+                $claim = (new UnifiedCommissionService($locked))->claim($requestedCents);
 
-                if ($claimedSum < $requestedAmount) {
+                if ($claim['cents'] < $requestedCents) {
                     throw new RuntimeException('Amount cannot exceed your available balance.');
                 }
+
+                $claimedSum = DecimalMoney::format($claim['cents']);
 
                 // Commissions are claimed as whole rows (never split), so
                 // the claimed sum can land above the amount the agency
@@ -126,18 +158,24 @@ class PayoutController extends Controller
                 // payout is paid.
                 $payout = Payout::create([
                     'agency_id' => $locked->brix_agency_id,
-                    'notes' => 'Payout requested',
+                    'notes' => $requestNotes,
                     'amount' => $claimedSum,
                     'currency' => $currency,
                     'status' => Payout::STATUS_PENDING,
                     'payment_method' => $account->method_label,
                     'payout_account_id' => $account->id,
                     'requested_at' => now(),
+                    'requested_by' => $requestedBy,
                 ]);
 
-                foreach ($claimed as $commission) {
+                foreach ($claim['store'] as $commission) {
                     $payout->commissions()->attach($commission->id, ['amount' => $commission->agency_commission]);
                     $commission->update(['commission_status' => Commission::STATUS_IN_PAYOUT]);
+                }
+
+                foreach ($claim['referral'] as $commission) {
+                    $payout->referralCommissions()->attach($commission->id, ['amount' => $commission->commission_amount]);
+                    $commission->update(['status' => ReferralCommission::STATUS_IN_PAYOUT]);
                 }
 
                 return $payout;
@@ -149,8 +187,15 @@ class PayoutController extends Controller
         $organisation->notifications()->create([
             'type' => 'payout_requested',
             'title' => 'Payout request submitted',
-            'message' => "Your payout request {$payout->payout_code} of ".Currency::format($payout->amount, $currency).' has been submitted.',
+            'message' => "Payment request {$payout->payout_code} has been submitted and is awaiting review.",
         ]);
+
+        ActivityLog::record('PAYMENT_REQUESTED', $organisation->brix_agency_id, null, [
+            'payout_id' => $payout->id,
+            'amount' => (float) $payout->amount,
+            'commission_count' => $payout->commissions()->count() + $payout->referralCommissions()->count(),
+            'requested_by' => $requestedBy,
+        ], $request);
 
         return response()->json([
             'payout' => [
@@ -168,7 +213,7 @@ class PayoutController extends Controller
     {
         Gate::authorize('view', $payout);
 
-        $payout->load('payoutAccount', 'commissions.store');
+        $payout->load('payoutAccount', 'commissions.store', 'referralCommissions.store', 'paidByAdmin');
 
         return view('payouts.show', [
             'payout' => $payout,

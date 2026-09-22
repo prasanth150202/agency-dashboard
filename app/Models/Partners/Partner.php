@@ -67,6 +67,16 @@ class Partner extends Model
         return $this->hasMany(\App\Models\AgencyLedger::class, 'agency_id');
     }
 
+    public function trackingLinks(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\TrackingLink::class, 'agency_id');
+    }
+
+    public function leads(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\Lead::class, 'agency_id');
+    }
+
     public static function uniqueSlug(string $base): string
     {
         $base = Str::slug($base) ?: 'agency';

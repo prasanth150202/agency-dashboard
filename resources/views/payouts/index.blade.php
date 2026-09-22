@@ -35,10 +35,10 @@
         @endif
 
         <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <x-metric-card label="Available Balance" :value="Currency::format($metrics['available'], $organisation->currency)" icon="wallet" prominent />
-            <x-metric-card label="Pending Payouts" :value="Currency::format($metrics['pending'], $organisation->currency)" icon="clock" />
-            <x-metric-card label="Processing" :value="Currency::format($metrics['processing'], $organisation->currency)" icon="loader" />
+            <x-metric-card label="Available for Payout" :value="Currency::format($metrics['available'], $organisation->currency)" icon="wallet" prominent />
+            <x-metric-card label="Pending Request" :value="Currency::format($metrics['pending'] + $metrics['processing'], $organisation->currency)" icon="clock" />
             <x-metric-card label="Paid" :value="Currency::format($metrics['paid'], $organisation->currency)" icon="circle-check-big" />
+            <x-metric-card label="Total Earned" :value="Currency::format($metrics['total_earned'], $organisation->currency)" icon="trending-up" />
         </div>
 
         {{-- Payout account summary --}}
@@ -72,8 +72,31 @@
 
         {{-- Payout History --}}
         <div class="mt-6 overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
-            <div class="border-b border-ink-100 px-5 py-4">
+            <div class="flex flex-col gap-3 border-b border-ink-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h3 class="text-sm font-semibold text-ink-900">Payout History</h3>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex gap-1.5">
+                        @foreach (['all' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'paid' => 'Paid', 'rejected' => 'Rejected'] as $key => $label)
+                            <a
+                                href="{{ route('payouts', array_filter(['filter' => $key, 'search' => $search])) }}"
+                                class="rounded-lg px-3 py-1.5 text-xs font-medium {{ $filter === $key ? 'bg-ink-900 text-white' : 'bg-ink-50 text-ink-600 hover:bg-ink-100' }}"
+                            >
+                                {{ $label }}
+                            </a>
+                        @endforeach
+                    </div>
+                    <form method="GET" action="{{ route('payouts') }}" class="flex gap-1.5">
+                        <input type="hidden" name="filter" value="{{ $filter }}">
+                        <input
+                            type="text"
+                            name="search"
+                            value="{{ $search }}"
+                            placeholder="Search request ID or reference…"
+                            class="w-48 rounded-lg border border-ink-200 px-3 py-1.5 text-xs outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100"
+                        >
+                    </form>
+                </div>
             </div>
 
             @if ($transactions->isEmpty())
@@ -110,11 +133,11 @@
                                         <x-status-badge
                                             :status="match($payout->status) {
                                                 'paid' => 'active',
-                                                'pending', 'approved', 'processing' => 'attention',
+                                                'pending', 'under_review', 'approved', 'processing' => 'attention',
                                                 'rejected', 'cancelled', 'failed' => 'offline',
                                                 default => 'inactive',
                                             }"
-                                            :label="$payout->status_label"
+                                            :label="$payout->status === 'under_review' ? 'Under Review' : $payout->status_label"
                                         />
                                     </td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-500">{{ $payout->provider_payout_id ?? '—' }}</td>

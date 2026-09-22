@@ -61,6 +61,7 @@ Alpine.data('profileMenu', () => ({
 Alpine.data('requestPayoutModal', (availableBalance, currencySymbol = '₹') => ({
     show: false,
     amount: availableBalance,
+    notes: '',
     submitting: false,
     error: null,
     success: null,
@@ -70,6 +71,7 @@ Alpine.data('requestPayoutModal', (availableBalance, currencySymbol = '₹') => 
         this.error = null;
         this.success = null;
         this.amount = availableBalance;
+        this.notes = '';
     },
 
     close() {
@@ -85,7 +87,7 @@ Alpine.data('requestPayoutModal', (availableBalance, currencySymbol = '₹') => 
         this.error = null;
 
         window.axios
-            .post('/payouts/request', { amount: this.amount })
+            .post('/payouts/request', { amount: this.amount, notes: this.notes })
             .then((response) => {
                 this.success = response.data.payout;
             })

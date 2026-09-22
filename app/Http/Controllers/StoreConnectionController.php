@@ -12,6 +12,7 @@ use App\Services\Brix\LocalStoreSync;
 use App\Services\Brix\RateLimitGuard;
 use App\Services\Brix\StoreAuthorization;
 use App\Services\Brix\StoreInstallationSync;
+use App\Services\Referral\ReferralAttribution;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -256,6 +257,8 @@ class StoreConnectionController extends Controller
 
         LocalStoreSync::touch($store, $relationshipStatus);
 
+        ReferralAttribution::syncStore($store);
+
         if ($justAuthorized) {
             BrixActivityLog::record('STORE_AUTHORIZED', $agency->id, $store->id, [
                 'shop_domain' => $store->shop_domain,
@@ -299,6 +302,8 @@ class StoreConnectionController extends Controller
         }
 
         LocalStoreSync::touch($store, 'ACTIVE');
+
+        ReferralAttribution::syncStore($store);
 
         if ($justActivated) {
             BrixActivityLog::record('STORE_ACTIVATED', $agency->id, $store->id, [
@@ -346,6 +351,8 @@ class StoreConnectionController extends Controller
             );
 
             LocalStoreSync::touch($store, 'PENDING');
+
+            ReferralAttribution::syncStore($store);
 
             return $this->respond($request, true, 'Store reconnected. You can now authorize it again.', ['redirect' => route('stores.show', $store)], redirectTo: $store);
         }

@@ -56,4 +56,13 @@ return [
         'internal_secret' => env('AGENCY_DASHBOARD_INTERNAL_SECRET', ''),
     ],
 
+    'referrals' => [
+        // How long a referral click bound to a shop domain stays eligible
+        // to be credited when that shop's BRIX install callback arrives.
+        'attribution_days' => (int) env('REFERRAL_ATTRIBUTION_DAYS', 7),
+        // How long the signed "enter your store domain" link handed out by
+        // /ref/{code} stays valid.
+        'capture_minutes' => (int) env('REFERRAL_CAPTURE_MINUTES', 30),
+    ],
+
 ];

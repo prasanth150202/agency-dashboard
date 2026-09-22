@@ -6,6 +6,7 @@ use App\Models\Commission;
 use App\Models\Organisation;
 use App\Models\Payout;
 use App\Models\PlatformSetting;
+use App\Models\Referral\ReferralCommission;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -36,9 +37,31 @@ class AgencyFinanceService
      */
     public function availableBalance(): float
     {
+        return round($this->storeCommissionsAvailable() + $this->referralCommissionsAvailable(), 2);
+    }
+
+    /** Legacy `transactions` commissions that are withdrawable now. */
+    public function storeCommissionsAvailable(): float
+    {
         $available = $this->organisation->commissions()
             ->effectivelyAvailable()
             ->sum('agency_commission');
+
+        return round((float) $available, 2);
+    }
+
+    /**
+     * Referral commissions that are withdrawable now AND in this
+     * organisation's currency — the only ones a payout (which has exactly one
+     * currency) can claim. Referral commissions in any other currency are
+     * excluded here; see UnifiedCommissionService::unpayable().
+     */
+    public function referralCommissionsAvailable(): float
+    {
+        $available = ReferralCommission::query()
+            ->where('agency_id', $this->organisation->brix_agency_id)
+            ->payableIn($this->organisation->currency)
+            ->sum('commission_amount');
 
         return round((float) $available, 2);
     }

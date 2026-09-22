@@ -205,4 +205,55 @@
             @endforeach
         </div>
     </div>
+
+    {{-- Referral funnel --}}
+    <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-ink-900">Referral funnel</h3>
+            <span class="text-xs text-ink-400">Last {{ $range }} days</span>
+        </div>
+        @php
+            $funnelSteps = [
+                ['label' => 'Clicks', 'value' => $referralFunnel['clicks']],
+                ['label' => 'Leads', 'value' => $referralFunnel['leads']],
+                ['label' => 'Installed', 'value' => $referralFunnel['installed']],
+                ['label' => 'Active', 'value' => $referralFunnel['active']],
+            ];
+        @endphp
+        <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            @foreach ($funnelSteps as $i => $step)
+                <div class="rounded-xl border border-ink-200/70 px-4 py-3">
+                    <p class="text-xs font-medium uppercase tracking-wide text-ink-400">{{ $step['label'] }}</p>
+                    <p class="mt-1 text-xl font-semibold text-ink-900">{{ $step['value'] }}</p>
+                    @if ($i > 0)
+                        <p class="mt-0.5 text-[11px] text-ink-400">
+                            {{ \App\Services\Referral\ReferralFunnel::rate($step['value'], $funnelSteps[$i - 1]['value']) ?? 0 }}% of {{ strtolower($funnelSteps[$i - 1]['label']) }}
+                        </p>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+        <a href="{{ route('tracking.index') }}" class="mt-4 inline-flex items-center gap-1 text-xs font-medium text-brix-600 hover:text-brix-700">
+            View full tracking <x-lucide-arrow-right class="h-3 w-3" />
+        </a>
+    </div>
+
+    {{-- Milestones --}}
+    <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-ink-900">Partner milestones</h3>
+            <span class="text-xs font-medium text-ink-500">{{ $milestoneProgress['achieved'] }} / {{ $milestoneProgress['total'] }}</span>
+        </div>
+        <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
+            <div class="h-full rounded-full bg-brix-500" style="width: {{ $milestoneProgress['total'] > 0 ? round($milestoneProgress['achieved'] / $milestoneProgress['total'] * 100) : 0 }}%"></div>
+        </div>
+        <ul class="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            @foreach ($milestones as $milestone)
+                <li class="flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm {{ $milestone['achieved'] ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-ink-200/70 text-ink-500' }}">
+                    <x-dynamic-component :component="$milestone['achieved'] ? 'lucide-circle-check-big' : 'lucide-circle'" class="h-4 w-4 shrink-0" />
+                    {{ $milestone['label'] }}
+                </li>
+            @endforeach
+        </ul>
+    </div>
 </x-app-layout>

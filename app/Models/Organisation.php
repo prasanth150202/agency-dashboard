@@ -93,6 +93,26 @@ class Organisation extends Model
         return $this->hasMany(AgencyLedger::class, 'agency_id', 'brix_agency_id');
     }
 
+    public function trackingLinks(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\TrackingLink::class, 'agency_id', 'brix_agency_id');
+    }
+
+    public function leads(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\Lead::class, 'agency_id', 'brix_agency_id');
+    }
+
+    public function referralRevenueEvents(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\ReferralRevenueEvent::class, 'agency_id', 'brix_agency_id');
+    }
+
+    public function referralCommissions(): HasMany
+    {
+        return $this->hasMany(\App\Models\Referral\ReferralCommission::class, 'agency_id', 'brix_agency_id');
+    }
+
     public function finance(): AgencyFinanceService
     {
         return new AgencyFinanceService($this);

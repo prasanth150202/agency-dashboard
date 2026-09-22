@@ -157,6 +157,16 @@
                             </div>
                         </div>
 
+                        <div class="mt-4">
+                            <label class="mb-1.5 block text-sm font-medium text-ink-700">Payment Request Notes (optional)</label>
+                            <textarea
+                                x-model="notes"
+                                rows="2"
+                                placeholder="Please process this payment to the registered bank account."
+                                class="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm text-ink-900 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100"
+                            ></textarea>
+                        </div>
+
                         <template x-if="error">
                             <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700" x-text="error"></div>
                         </template>

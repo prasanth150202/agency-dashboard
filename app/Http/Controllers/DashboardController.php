@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Organisation;
 use App\Models\Payout;
 use App\Models\StoreModule;
+use App\Services\Referral\Gamification;
+use App\Services\Referral\ReferralFunnel;
 use App\Support\Metrics;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -103,6 +105,10 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        $agencyId = $organisation->brix_agency_id;
+        $referralFunnel = ReferralFunnel::totals((new ReferralFunnel($agencyId))->byLink(Carbon::now()->subDays($range)));
+        $gamification = new Gamification($agencyId);
+
         return view('dashboard.index', [
             'organisation' => $organisation,
             'range' => $range,
@@ -117,6 +123,9 @@ class DashboardController extends Controller
                 'pending' => $pendingPayout,
                 'last_payout' => $finance->lastPayout(),
             ],
+            'referralFunnel' => $referralFunnel,
+            'milestones' => $gamification->milestones(),
+            'milestoneProgress' => $gamification->progress(),
         ]);
     }
 }

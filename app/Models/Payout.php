@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Referral\ReferralCommission;
 use App\Support\Currency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,6 +21,8 @@ class Payout extends Model
 
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_UNDER_REVIEW = 'under_review';
+
     public const STATUS_APPROVED = 'approved';
 
     public const STATUS_PROCESSING = 'processing';
@@ -34,6 +37,7 @@ class Payout extends Model
 
     public const STATUSES = [
         self::STATUS_PENDING,
+        self::STATUS_UNDER_REVIEW,
         self::STATUS_APPROVED,
         self::STATUS_PROCESSING,
         self::STATUS_PAID,
@@ -43,7 +47,7 @@ class Payout extends Model
     ];
 
     /** Statuses that still reserve funds out of the available balance. */
-    public const RESERVING_STATUSES = [self::STATUS_PENDING, self::STATUS_APPROVED, self::STATUS_PROCESSING];
+    public const RESERVING_STATUSES = [self::STATUS_PENDING, self::STATUS_UNDER_REVIEW, self::STATUS_APPROVED, self::STATUS_PROCESSING];
 
     protected $fillable = [
         'agency_id',
@@ -59,11 +63,22 @@ class Payout extends Model
         'provider_payout_id',
         'idempotency_key',
         'requested_at',
+        'requested_by',
+        'reviewed_at',
+        'reviewed_by',
         'approved_at',
+        'approved_by',
         'processing_at',
         'paid_at',
+        'transfer_reference',
+        'transfer_date',
+        'paid_amount',
+        'paid_currency',
+        'paid_by',
+        'payment_notes',
         'rejected_at',
         'rejection_reason',
+        'rejected_by',
         'cancelled_at',
         'notes',
     ];
@@ -72,10 +87,13 @@ class Payout extends Model
         'period_start' => 'date',
         'period_end' => 'date',
         'amount' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
         'requested_at' => 'datetime',
+        'reviewed_at' => 'datetime',
         'approved_at' => 'datetime',
         'processing_at' => 'datetime',
         'paid_at' => 'datetime',
+        'transfer_date' => 'date',
         'rejected_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
@@ -128,6 +146,31 @@ class Payout extends Model
         return $this->belongsTo(PayoutAccount::class);
     }
 
+    public function requestedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function reviewedByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Admin\AdminUser::class, 'reviewed_by');
+    }
+
+    public function approvedByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Admin\AdminUser::class, 'approved_by');
+    }
+
+    public function rejectedByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Admin\AdminUser::class, 'rejected_by');
+    }
+
+    public function paidByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Admin\AdminUser::class, 'paid_by');
+    }
+
     /**
      * Commissions this payout has claimed — see transaction_payout and
      * Commission::STATUS_IN_PAYOUT.
@@ -135,6 +178,18 @@ class Payout extends Model
     public function commissions(): BelongsToMany
     {
         return $this->belongsToMany(Commission::class, 'transaction_payout', 'payout_id', 'transaction_id')
+            ->withPivot('amount')
+            ->withTimestamps();
+    }
+
+    /**
+     * Referral commissions this payout has claimed — see
+     * referral_commission_payout and ReferralCommission::STATUS_IN_PAYOUT.
+     * The referral counterpart of commissions(); both feed the one payout.
+     */
+    public function referralCommissions(): BelongsToMany
+    {
+        return $this->belongsToMany(ReferralCommission::class, 'referral_commission_payout', 'payout_id', 'referral_commission_id')
             ->withPivot('amount')
             ->withTimestamps();
     }
@@ -184,20 +239,55 @@ class Payout extends Model
         ]);
     }
 
-    public function markPaid(?string $providerPayoutId = null): void
+    /**
+     * The Admin's first look at a still-pending request — surfaces who is
+     * reviewing it and when, without changing anything financial yet.
+     * Only valid from PENDING; a no-op otherwise so a duplicate click never
+     * clobbers an existing reviewed_at/reviewed_by.
+     */
+    public function markUnderReview(int $adminId): void
     {
-        if ($this->status === self::STATUS_PAID) {
+        if ($this->status !== self::STATUS_PENDING) {
+            return;
+        }
+
+        $this->update([
+            'status' => self::STATUS_UNDER_REVIEW,
+            'reviewed_at' => now(),
+            'reviewed_by' => $adminId,
+        ]);
+    }
+
+    /**
+     * Records the manual bank transfer BRIX's Admin has confirmed they
+     * already sent outside the application, and only then marks the payout
+     * PAID. Only valid from APPROVED — the Admin must approve the request
+     * before any transfer can be recorded, and a payout already PAID can
+     * never be marked paid again (see PAYOUT IMMUTABILITY). The caller
+     * (Admin\PayoutController::markPaid) is responsible for validating the
+     * amount/currency against $this before calling this method.
+     */
+    public function markPaid(array $payment): void
+    {
+        if ($this->status !== self::STATUS_APPROVED) {
             return;
         }
 
         $this->update([
             'status' => self::STATUS_PAID,
             'paid_at' => now(),
-            'provider_payout_id' => $providerPayoutId ?? $this->provider_payout_id,
+            'transfer_reference' => $payment['transfer_reference'],
+            'transfer_date' => $payment['transfer_date'],
+            'paid_amount' => $payment['paid_amount'],
+            'paid_currency' => $payment['paid_currency'],
+            'payment_notes' => $payment['payment_notes'] ?? null,
+            'paid_by' => $payment['paid_by'] ?? null,
+            'provider_payout_id' => $payment['transfer_reference'],
         ]);
 
         // The commissions this payout claimed are now truly spent.
         $this->commissions()->update(['commission_status' => Commission::STATUS_PAID]);
+        $this->settleReferralCommissions();
 
         AgencyLedger::create([
             'agency_id' => $this->agency_id,
@@ -211,11 +301,11 @@ class Payout extends Model
         $this->organisation?->notifications()->create([
             'type' => 'payout_paid',
             'title' => 'Payout paid',
-            'message' => 'Your payout of '.Currency::format($this->amount, $this->currency).' has been paid.',
+            'message' => "Payment request {$this->payout_code} has been paid.",
         ]);
     }
 
-    public function markRejected(string $reason): void
+    public function markRejected(string $reason, ?int $rejectedBy = null): void
     {
         if (in_array($this->status, [self::STATUS_PAID, self::STATUS_REJECTED, self::STATUS_CANCELLED], true)) {
             return;
@@ -227,12 +317,13 @@ class Payout extends Model
             'status' => self::STATUS_REJECTED,
             'rejected_at' => now(),
             'rejection_reason' => $reason,
+            'rejected_by' => $rejectedBy,
         ]);
 
         $this->organisation?->notifications()->create([
             'type' => 'payout_rejected',
             'title' => 'Payout rejected',
-            'message' => "Your payout request {$this->payout_code} was rejected: {$reason}",
+            'message' => "Payment request {$this->payout_code} was rejected: {$reason}",
         ]);
     }
 
@@ -264,5 +355,40 @@ class Payout extends Model
         Commission::whereIn('id', $this->commissions()->pluck('transactions.id'))
             ->where('commission_status', Commission::STATUS_IN_PAYOUT)
             ->update(['commission_status' => Commission::STATUS_AVAILABLE]);
+
+        // Back to pending: the holding period is already behind them, so they
+        // read as eligible again and can be claimed by a future payout.
+        ReferralCommission::whereIn('id', $this->referralCommissions()->pluck('referral_commissions.id'))
+            ->where('status', ReferralCommission::STATUS_IN_PAYOUT)
+            ->update(['status' => ReferralCommission::STATUS_PENDING]);
+    }
+
+    /**
+     * Marks the referral commissions this payout claimed as paid and credits
+     * each to agency_ledger. The ledger's PAYOUT row debits the whole payout,
+     * but nothing credits a referral commission there when it accrues (the
+     * accrual only writes referral_commissions), so without these COMMISSION
+     * rows the partner's ledger balance would go negative by the referral
+     * portion. Runs once — markPaid() returns early for an already-paid payout.
+     */
+    private function settleReferralCommissions(): void
+    {
+        $claimed = $this->referralCommissions()
+            ->where('referral_commissions.status', ReferralCommission::STATUS_IN_PAYOUT)
+            ->get();
+
+        foreach ($claimed as $commission) {
+            AgencyLedger::create([
+                'agency_id' => $this->agency_id,
+                'store_id' => $commission->store_id,
+                'payout_id' => $this->id,
+                'type' => AgencyLedger::TYPE_COMMISSION,
+                'amount' => $commission->pivot->amount,
+                'description' => "Referral commission REF-{$commission->id} paid via {$this->payout_code}",
+                'created_at' => now(),
+            ]);
+        }
+
+        ReferralCommission::whereIn('id', $claimed->pluck('id'))->update(['status' => ReferralCommission::STATUS_PAID]);
     }
 }

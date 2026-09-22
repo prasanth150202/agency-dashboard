@@ -12,6 +12,7 @@ use App\Models\Store;
 use App\Services\Brix\LocalStoreSync;
 use App\Services\Brix\StoreAuthorization;
 use App\Services\Brix\StoreInstallationSync;
+use App\Services\Referral\ReferralAttribution;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -51,7 +52,10 @@ class AgencyShopifyWebhookController extends Controller
         if (! $onboarding) {
             // No agency is currently connecting this store — nothing to
             // attribute the install to. Never fabricate an agency_id (the
-            // stores table requires a real one).
+            // stores table requires a real one). A referral link the
+            // merchant came through may still credit a lead (fail-safe).
+            ReferralAttribution::handleInstall($shopDomain, null, $validated['shopify_shop_id'] ?? null);
+
             return response()->json(['success' => true, 'message' => 'No pending connection attempt.']);
         }
 
@@ -90,6 +94,8 @@ class AgencyShopifyWebhookController extends Controller
 
         $onboarding->update(['status' => 'AUTHORIZING', 'created_store_id' => $result['store']->id]);
 
+        ReferralAttribution::handleInstall($shopDomain, (int) $agencyId, $validated['shopify_shop_id'] ?? null);
+
         return response()->json(['success' => true]);
     }
 
@@ -124,6 +130,8 @@ class AgencyShopifyWebhookController extends Controller
         });
 
         LocalStoreSync::touch($store->refresh(), 'DISCONNECTED');
+
+        ReferralAttribution::syncStore($store);
 
         BrixActivityLog::record('STORE_DISCONNECTED', $store->agency_id, $store->id, [
             'shop_domain' => $shopDomain,
@@ -199,6 +207,8 @@ class AgencyShopifyWebhookController extends Controller
 
         LocalStoreSync::touch($store, $relationshipStatus);
 
+        ReferralAttribution::syncStore($store);
+
         if ($justAuthorized) {
             BrixActivityLog::record('STORE_AUTHORIZED', $agencyId, $store->id, [
                 'shop_domain' => $shopDomain,
@@ -240,6 +250,8 @@ class AgencyShopifyWebhookController extends Controller
         }
 
         LocalStoreSync::touch($store, 'ACTIVE');
+
+        ReferralAttribution::syncStore($store);
 
         if ($justActivated) {
             BrixActivityLog::record('STORE_ACTIVATED', $agencyId, $store->id, [
