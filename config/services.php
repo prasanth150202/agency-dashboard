@@ -56,6 +56,24 @@ return [
         'internal_secret' => env('AGENCY_DASHBOARD_INTERNAL_SECRET', ''),
     ],
 
+    // Shopify's Partner API (partners.shopify.com/{org}/api/{version}/graphql.json)
+    // — a wholly separate credential set from 'shopify' above: org-level,
+    // not per-shop, and needs the "View financials" Partner API client
+    // permission. The one verified source of real subscription revenue
+    // (net of Shopify's fee) and of reversals/credits — cartninja has
+    // neither. See SubscriptionRevenueSource.
+    'shopify_partner' => [
+        'api_token' => env('SHOPIFY_PARTNER_API_TOKEN'),
+        'org_id' => env('SHOPIFY_PARTNER_ORG_ID'),
+        'app_id' => env('SHOPIFY_PARTNER_APP_ID'),
+        'api_version' => env('SHOPIFY_PARTNER_API_VERSION', '2026-07'),
+        // Re-fetched every run rather than tracking a high-water mark —
+        // simpler, and safe: recorded events are idempotent on
+        // source+external_event_id+revenue_type, so an overlapping window
+        // just re-checks the same transactions rather than double-recording.
+        'lookback_days' => (int) env('SHOPIFY_PARTNER_LOOKBACK_DAYS', 45),
+    ],
+
     'referrals' => [
         // How long a referral click bound to a shop domain stays eligible
         // to be credited when that shop's BRIX install callback arrives.

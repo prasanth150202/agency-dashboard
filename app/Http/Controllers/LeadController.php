@@ -21,7 +21,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -148,10 +147,20 @@ class LeadController extends Controller
             ]);
         }
 
-        if (Lead::where('shop_domain', $shopDomain)->exists()) {
-            return back()->withInput()->withErrors([
-                'website' => "A lead for {$shopDomain} already exists — check the leads list.",
-            ]);
+        $existingLead = Lead::where('shop_domain', $shopDomain)->first();
+
+        if ($existingLead) {
+            // shop_domain is unique across ALL agencies, not just this one
+            // (see create_leads_table's unique index) — so the existing row
+            // may belong to a different agency, whose leads never show up
+            // in this agency's own leads list. Say so instead of pointing
+            // the user at a list where they'll never find it, and never
+            // reveal which other agency owns it.
+            $message = (int) $existingLead->agency_id === (int) $agency->id
+                ? "A lead for {$shopDomain} already exists — check the leads list."
+                : "{$shopDomain} is already a lead with another partner and can't be added again.";
+
+            return back()->withInput()->withErrors(['website' => $message]);
         }
 
         [$isInstalled, $existingShop] = $this->installState($shopDomain);
@@ -220,15 +229,22 @@ class LeadController extends Controller
         return $redirect;
     }
 
+    /**
+     * Deep-links straight into this ONE exact shop's own admin — the shop
+     * domain is baked into the URL, so Shopify can't show a different
+     * store's context. Reuses Store::brixAppUrlFor(), the same
+     * admin.shopify.com/store/{handle}/apps/{app handle} builder already
+     * used elsewhere for an installed store's own app link — so there's
+     * one place that knows BRIX's real Shopify app handle, not two.
+     * apps.shopify.com/{handle}?shop=... was tried first, but it only
+     * shows whichever store happens to be logged in already (with a
+     * manual "Switch stores" step), not the target shop. Never
+     * app_auth_url (cartdrawer.fly.dev/auth) either — that's
+     * cartdrawerv2_ui's own dev deployment, not a merchant-facing page.
+     */
     private function shopifyInstallUrl(string $shopDomain): string
     {
-        $base = (string) config('services.shopify.app_auth_url', '');
-
-        if ($base === '') {
-            $base = (string) config('services.shopify.app_store_url');
-        }
-
-        return $base.(Str::contains($base, '?') ? '&' : '?').http_build_query(['shop' => $shopDomain]);
+        return Store::brixAppUrlFor($shopDomain, '');
     }
 
     /**
@@ -364,5 +380,110 @@ class LeadController extends Controller
         ], $request);
 
         return back()->with('success', 'Lead stage updated.');
+    }
+
+    /**
+     * Re-runs the same cartninja install check store() does at creation,
+     * for a lead whose BRIX status was never resolved yet — most often
+     * because the check ran while the cartninja connection was briefly
+     * unreachable and saved a false "not installed" that nothing else
+     * ever corrects. Only meaningful before a real Store row exists
+     * (store_id null); once matched, ReferralAttribution keeps brix_status
+     * live from webhooks and this would just be redundant.
+     */
+    public function recheckInstall(Request $request, Lead $lead): RedirectResponse
+    {
+        Gate::authorize('update', $lead);
+
+        if ($lead->store_id !== null) {
+            return back()->with('error', 'This lead already follows a matched BRIX store — its status updates automatically.');
+        }
+
+        if ($lead->shop_domain === null) {
+            return back()->with('error', 'This lead has no shop domain to check yet.');
+        }
+
+        $before = $lead->only(['brix_status', 'lead_stage', 'installed_at', 'brix_plan']);
+        $stageIsStillOurs = $lead->canChangeStageManually();
+
+        [$isInstalled, $shop] = $this->installState($lead->shop_domain);
+
+        if (! $isInstalled) {
+            return back()->with('success', 'Rechecked — still not installed on BRIX.');
+        }
+
+        $lead->update([
+            'brix_status' => 'INSTALLED',
+            'brix_plan' => $shop->plan_key ?? $shop->plan ?? $lead->brix_plan,
+            'lead_stage' => $stageIsStillOurs ? Lead::STAGE_INSTALLED : $lead->lead_stage,
+            'installed_at' => $lead->installed_at ?? now(),
+        ]);
+
+        // A local store owned by this same agency may now exist too (e.g.
+        // it was created by a webhook after this lead's first check) —
+        // claim it exactly like store() does, then let ReferralAttribution
+        // take over as the source of truth from here on.
+        $store = Store::where('shop_domain', $lead->shop_domain)->first();
+        if ($store && (int) $store->agency_id === (int) $lead->agency_id) {
+            $lead->update(['store_id' => $store->id]);
+            ReferralAttribution::syncStore($store);
+        }
+
+        $lead->refresh();
+
+        ActivityLog::record('lead.install_status_rechecked', $lead->agency_id, null, [
+            'lead_id' => $lead->id,
+            'shop_domain' => $lead->shop_domain,
+            'before' => $before,
+            'after' => $lead->only(['brix_status', 'lead_stage', 'installed_at', 'brix_plan']),
+            'by' => $request->user()->email,
+        ], $request);
+
+        return back()->with('success', 'Rechecked — this lead is now marked installed.');
+    }
+
+    /**
+     * Deletes a mistaken/duplicate manual lead. Policy already blocks this
+     * once store_id is set. The migrations declare restrictOnDelete() on
+     * referral_revenue_events.lead_id / referral_commissions.lead_id and
+     * cascadeOnDelete() on lead_events.lead_id, but on the live DB none of
+     * those foreign keys actually exist (confirmed via
+     * information_schema.TABLE_CONSTRAINTS — zero FKs reference `leads`,
+     * despite the migrations showing as run) — so this checks and cleans
+     * up explicitly instead of trusting the DB to enforce or cascade it.
+     */
+    public function destroy(Request $request, Lead $lead): RedirectResponse
+    {
+        Gate::authorize('delete', $lead);
+
+        $hasRevenueOrCommission = DB::table('referral_revenue_events')->where('lead_id', $lead->id)->exists()
+            || DB::table('referral_commissions')->where('lead_id', $lead->id)->exists();
+
+        if ($hasRevenueOrCommission) {
+            return back()->with('error', 'This lead has revenue or commission history and can\'t be deleted.');
+        }
+
+        $trackingLink = $lead->source === Lead::SOURCE_MANUAL ? $lead->trackingLink : null;
+        $shopDomain = $lead->shop_domain;
+
+        DB::transaction(function () use ($lead, $trackingLink) {
+            // No real FK cascade to rely on (see docblock) — clear the
+            // timeline explicitly so it doesn't orphan.
+            $lead->events()->delete();
+            $lead->delete();
+
+            // Only the link store() auto-created solely for this lead's
+            // own install redirect — never a real, shared referral link.
+            $trackingLink?->delete();
+        });
+
+        ActivityLog::record('lead.deleted', $lead->agency_id, null, [
+            'lead_id' => $lead->id,
+            'shop_domain' => $shopDomain,
+            'company_name' => $lead->company_name,
+            'by' => $request->user()->email,
+        ], $request);
+
+        return redirect()->route('leads.index')->with('success', 'Lead deleted.');
     }
 }

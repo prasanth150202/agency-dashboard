@@ -22,6 +22,25 @@
         <div class="flex items-center gap-2">
             <x-lead-install-badge :lead="$lead" />
             <x-lead-stage-badge :stage="$lead->lead_stage" />
+            @can('delete', $lead)
+                <form
+                    method="POST"
+                    action="{{ route('leads.destroy', $lead) }}"
+                    x-data
+                    x-on:submit="if (! confirm('Delete this lead? This can\'t be undone.')) $event.preventDefault();"
+                >
+                    @csrf
+                    @method('DELETE')
+                    <button
+                        type="submit"
+                        title="Delete this lead"
+                        class="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
+                    >
+                        <x-lucide-trash-2 class="h-3.5 w-3.5" />
+                        Delete
+                    </button>
+                </form>
+            @endcan
         </div>
     </div>
 
@@ -63,7 +82,22 @@
         </div>
         <div class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
             <p class="text-xs font-medium text-ink-500">BRIX Status <span class="font-normal text-ink-400">· install state</span></p>
-            <p class="mt-2 text-sm font-semibold text-ink-900">{{ $lead->brix_status ? str_replace('_', ' ', $lead->brix_status) : 'NOT INSTALLED' }}</p>
+            <div class="mt-2 flex items-center justify-between gap-2">
+                <p class="text-sm font-semibold text-ink-900">{{ $lead->brix_status ? str_replace('_', ' ', $lead->brix_status) : 'NOT INSTALLED' }}</p>
+                @if ($lead->store_id === null && $lead->shop_domain !== null)
+                    <form method="POST" action="{{ route('leads.recheck-install', $lead) }}">
+                        @csrf
+                        <button
+                            type="submit"
+                            title="Re-check BRIX install status for this shop"
+                            class="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50"
+                        >
+                            <x-lucide-refresh-cw class="h-3 w-3" />
+                            Recheck
+                        </button>
+                    </form>
+                @endif
+            </div>
         </div>
         <x-kpi-card label="Verified Revenue" :value="Money::money($revenue)" context="all time, this lead" icon="trending-up" />
         <x-kpi-card label="Commission Earned" :value="Money::money($commission)" context="pending, available or paid" icon="hand-coins" />

@@ -54,6 +54,8 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
     Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
     Route::get('/leads/{lead}', [LeadController::class, 'show'])->name('leads.show');
     Route::post('/leads/{lead}/stage', [LeadController::class, 'updateStage'])->name('leads.stage');
+    Route::post('/leads/{lead}/recheck-install', [LeadController::class, 'recheckInstall'])->name('leads.recheck-install');
+    Route::delete('/leads/{lead}', [LeadController::class, 'destroy'])->name('leads.destroy');
 
 
     Route::get('/qr', [QrReferralController::class, 'index'])->name('qr.index');

@@ -101,6 +101,12 @@ return [
             'prefix' => '',
             'strict' => true,
             'engine' => null,
+            // Enforce read-only at the session level so any accidental
+            // INSERT/UPDATE/DELETE through this connection fails (MySQL
+            // error 1792) instead of touching the Shopify app's data.
+            'options' => extension_loaded('pdo_mysql') ? [
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND) => 'SET SESSION TRANSACTION READ ONLY',
+            ] : [],
         ],
 
         'pgsql' => [
