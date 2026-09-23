@@ -24,6 +24,13 @@ DirectoryIndex index.php
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
+    # Route the bare root straight to index.php, unconditionally. This
+    # host doesn't honor DirectoryIndex from .htaccess (confirmed: "/"
+    # still 403'd after declaring it explicitly), and the rule below
+    # never fires for "/" on its own — the doc root IS a directory, so
+    # its "!-d" condition fails before ever reaching index.php.
+    RewriteRule ^$ index.php [L]
+
     # Send Requests To Front Controller...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
