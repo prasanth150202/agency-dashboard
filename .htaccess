@@ -1,0 +1,31 @@
+# Lives at the repo root (public_html on this host — the Git deploy
+# target, confirmed via hPanel's Git panel: "Root directory: public_html").
+# Laravel's real front controller is one level down, at public/index.php —
+# this host's Document Root serves straight from here instead, so every
+# request needs forwarding into public/ before Laravel ever sees it.
+# public/.htaccess (already in the repo, untouched) takes over normally
+# from there.
+
+# Defense in depth: never serve dotfiles (.env above all) directly, even
+# if something upstream of this rewrite ever changes. Confirmed .env is
+# NOT currently exposed (returns 403), but nothing should depend on that
+# staying true by accident once routing starts working.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # The bare root, sent straight to the FILE public/index.php — never
+    # to the public/ directory itself. Rewriting "/" to a directory
+    # would hit the same DirectoryIndex problem already confirmed: this
+    # host doesn't honor DirectoryIndex from .htaccess.
+    RewriteRule ^$ public/index.php [L]
+
+    # Everything else, forwarded one level down. public/.htaccess then
+    # applies its own rules to what lands there — a real file (built
+    # assets, images) gets served as-is; anything else reaches
+    # public/index.php.
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
