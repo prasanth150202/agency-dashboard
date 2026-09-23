@@ -7,8 +7,13 @@ use App\Models\Partners\ActivityLog;
 use App\Models\Referral\Lead;
 use App\Models\Referral\ReferralCommission;
 use App\Models\Referral\ReferralRevenueEvent;
+use App\Models\Referral\ReferralClick;
 use App\Models\Referral\TrackingLink;
+use App\Services\Analytics\AgencyAnalytics;
+use App\Services\Analytics\TrendChart;
 use App\Services\Referral\Commission\CommissionSourceMode;
+use App\Services\Referral\ReferralReporting;
+use App\Support\AnalyticsPeriod;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,7 +29,9 @@ class ReferralLinkController extends Controller
 
         $links = $organisation->trackingLinks()
             ->withCount(['clicks', 'leads'])
+            ->withCount(['leads as installed_count' => fn ($q) => $q->whereNotNull('installed_at')])
             ->withCount(['leads as active_stores_count' => fn ($q) => $q->where('lead_stage', Lead::STAGE_ACTIVE)])
+            ->withMax('clicks as last_click_at', 'created_at')
             ->search($request->query('search'))
             ->status($request->query('status'))
             ->channel($request->query('channel'))
@@ -34,29 +41,17 @@ class ReferralLinkController extends Controller
 
         // Revenue and commission come only from verified referral revenue
         // events and the commissions derived from them — never the legacy
-        // `transactions` table, and always scoped to this agency.
+        // `transactions` table, always scoped to this agency, and kept per
+        // currency (never added across currencies).
         $linkIds = $links->getCollection()->pluck('id');
-
-        $revenue = ReferralRevenueEvent::query()
-            ->join('leads', 'leads.id', '=', 'referral_revenue_events.lead_id')
-            ->where('referral_revenue_events.agency_id', $agency->id)
-            ->whereIn('leads.tracking_link_id', $linkIds)
-            ->selectRaw('leads.tracking_link_id as link_id, SUM(referral_revenue_events.revenue_amount) as total')
-            ->groupBy('leads.tracking_link_id')
-            ->pluck('total', 'link_id');
-
-        $commission = ReferralCommission::query()
-            ->where('agency_id', $agency->id)
-            ->whereIn('tracking_link_id', $linkIds)
-            ->whereIn('status', ReferralCommission::EARNED_STATUSES)
-            ->selectRaw('tracking_link_id, SUM(commission_amount) as total')
-            ->groupBy('tracking_link_id')
-            ->pluck('total', 'tracking_link_id');
+        $reporting = new ReferralReporting($agency->id);
+        $revenue = $reporting->revenueByLink($linkIds);
+        $commission = $reporting->commissionByLink($linkIds);
 
         $links->getCollection()->transform(function (TrackingLink $link) use ($revenue, $commission) {
-            $link->revenue = (float) ($revenue[$link->id] ?? 0);
-            $link->commission = (float) ($commission[$link->id] ?? 0);
-            $link->last_activity_at = $link->clicks()->latest('created_at')->value('created_at') ?? $link->updated_at;
+            $link->revenue = $revenue[$link->id] ?? [];
+            $link->commission = $commission[$link->id] ?? [];
+            $link->last_activity_at = $link->last_click_at ? \Illuminate\Support\Carbon::parse($link->last_click_at) : $link->updated_at;
 
             return $link;
         });
@@ -166,6 +161,41 @@ class ReferralLinkController extends Controller
         ], $request);
 
         return back()->with('success', "\"{$trackingLink->name}\" has been deactivated.");
+    }
+
+    /** One link's performance: funnel, trend and recent real activity for the chosen period. */
+    public function show(Request $request, TrackingLink $trackingLink)
+    {
+        Gate::authorize('view', $trackingLink);
+
+        /** @var Organisation $organisation */
+        $organisation = $request->attributes->get('currentOrganisation');
+        $period = AnalyticsPeriod::fromRequest($request, '30d', ['7d', '30d', '3m', '6m', 'ytd', 'all', 'custom']);
+        $analytics = new AgencyAnalytics($organisation);
+        $reporting = new ReferralReporting((int) $trackingLink->agency_id);
+
+        $recentClicks = ReferralClick::where('tracking_link_id', $trackingLink->id)
+            ->latest('created_at')->latest('id')->limit(8)->get(['id', 'shop_domain', 'source', 'created_at']);
+
+        $recentLeads = $trackingLink->leads()->with('store')->latest('created_at')->limit(8)->get();
+
+        return view('referral-links.show', [
+            'link' => $trackingLink,
+            'period' => $period,
+            'funnel' => $analytics->funnel($period, $trackingLink->id),
+            'chart' => TrendChart::build($analytics->series($period, $trackingLink->id), ['clicks', 'leads', 'installed']),
+            'totals' => [
+                'clicks' => $trackingLink->clicks()->count(),
+                'qr_scans' => $trackingLink->clicks()->where('source', ReferralClick::SOURCE_QR)->count(),
+                'leads' => $trackingLink->leads()->count(),
+                'installed' => $trackingLink->leads()->whereNotNull('installed_at')->count(),
+                'active' => $trackingLink->leads()->whereNotNull('activated_at')->count(),
+                'revenue' => $reporting->revenueByLink([$trackingLink->id])[$trackingLink->id] ?? [],
+                'commission' => $reporting->commissionByLink([$trackingLink->id])[$trackingLink->id] ?? [],
+            ],
+            'recentClicks' => $recentClicks,
+            'recentLeads' => $recentLeads,
+        ]);
     }
 
     public function leads(TrackingLink $trackingLink)

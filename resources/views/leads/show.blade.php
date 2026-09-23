@@ -50,57 +50,77 @@
         </div>
     @endif
 
-    <div class="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <x-metric-card label="BRIX Status" :value="$lead->brix_status ?? '—'" icon="store" />
-        <x-metric-card label="Plan" :value="$lead->store?->plan ?? $lead->brix_plan ?? '—'" icon="package" />
-        <x-metric-card label="Verified Revenue" :value="Money::money($revenue)" icon="trending-up" />
-        <x-metric-card label="Commission Earned" :value="Money::money($commission)" icon="indian-rupee" />
-    </div>
+    @php
+        $date = fn ($d) => $d?->format('M j, Y') ?? '—';
+        $row = 'flex justify-between gap-3 py-1';
+    @endphp
 
-    <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div class="space-y-6 lg:col-span-2">
-            <section class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-                <h3 class="text-sm font-semibold text-ink-900">Timeline</h3>
-                <ol class="mt-4 space-y-4">
-                    @forelse ($lead->events as $event)
-                        <li class="flex gap-3">
-                            <span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brix-500"></span>
-                            <div>
-                                <p class="text-sm font-medium text-ink-800">{{ ucwords(strtolower(str_replace('_', ' ', $event->event_type))) }}</p>
-                                <p class="text-xs text-ink-500">{{ $event->created_at->format('M j, Y g:i A') }}</p>
-                            </div>
+    {{-- Lead stage and BRIX status are deliberately separate facts. --}}
+    <section class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Lead summary">
+        <div class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+            <p class="text-xs font-medium text-ink-500">Lead Stage <span class="font-normal text-ink-400">· your pipeline</span></p>
+            <div class="mt-2"><x-lead-stage-badge :stage="$lead->lead_stage" /></div>
+        </div>
+        <div class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+            <p class="text-xs font-medium text-ink-500">BRIX Status <span class="font-normal text-ink-400">· install state</span></p>
+            <p class="mt-2 text-sm font-semibold text-ink-900">{{ $lead->brix_status ? str_replace('_', ' ', $lead->brix_status) : 'NOT INSTALLED' }}</p>
+        </div>
+        <x-kpi-card label="Verified Revenue" :value="Money::money($revenue)" context="all time, this lead" icon="trending-up" />
+        <x-kpi-card label="Commission Earned" :value="Money::money($commission)" context="pending, available or paid" icon="hand-coins" />
+    </section>
+
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div class="space-y-4 lg:col-span-2">
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="timeline-heading" x-data="{ all: false }">
+                <div class="flex items-baseline justify-between">
+                    <h3 id="timeline-heading" class="text-sm font-semibold text-ink-900">Timeline</h3>
+                    <span class="text-[11px] text-ink-400">{{ count($timeline) }} recorded {{ Str::plural('event', count($timeline)) }}</span>
+                </div>
+                <ol class="relative mt-3 border-l border-ink-200 pl-5">
+                    @foreach ($timeline as $i => $item)
+                        <li class="relative pb-4 last:pb-0" @if ($i >= 8) x-show="all" x-cloak @endif>
+                            <span @class(['absolute -left-[25px] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-white',
+                                'bg-emerald-500' => $item['tone'] === 'success', 'bg-rose-500' => $item['tone'] === 'danger',
+                                'bg-blue-500' => $item['tone'] === 'info', 'bg-ink-400' => $item['tone'] === 'neutral']) aria-hidden="true"></span>
+                            <p class="text-sm font-medium text-ink-900">{{ $item['label'] }}</p>
+                            <p class="text-xs text-ink-500">
+                                <time datetime="{{ $item['at']->toIso8601String() }}">{{ $item['at']->format('M j, Y g:i A') }}</time>
+                                @if ($item['detail']) · {{ $item['detail'] }} @endif
+                            </p>
                         </li>
-                    @empty
-                        <li class="text-sm text-ink-500">No recorded activity yet.</li>
-                    @endforelse
+                    @endforeach
                 </ol>
+                @if (count($timeline) > 8)
+                    <button type="button" x-on:click="all = !all" class="mt-2 text-xs font-medium text-ink-600 hover:text-ink-900"
+                        x-text="all ? 'Show less' : 'Show all {{ count($timeline) }} events'"></button>
+                @endif
             </section>
 
-            <section class="overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
-                <h3 class="px-5 pt-5 text-sm font-semibold text-ink-900">Revenue &amp; commission</h3>
+            <section class="overflow-hidden rounded-xl border border-ink-200/70 bg-white shadow-subtle">
+                <h3 class="px-4 pt-4 text-sm font-semibold text-ink-900">Financial · Revenue &amp; commission</h3>
                 @if ($revenueEvents->isEmpty())
-                    <p class="px-5 pb-5 pt-2 text-sm text-ink-500">No verified BRIX revenue for this store yet.</p>
+                    <p class="px-4 pb-4 pt-2 text-sm text-ink-500">No verified BRIX revenue for this store yet.</p>
                 @else
                     <div class="mt-3 overflow-x-auto">
                         <table class="w-full text-left text-sm">
                             <thead>
                                 <tr class="border-y border-ink-100 text-xs font-medium uppercase tracking-wide text-ink-400">
-                                    <th class="px-5 py-2.5">Date</th>
-                                    <th class="px-5 py-2.5">Type</th>
-                                    <th class="px-5 py-2.5 text-right">Revenue</th>
-                                    <th class="px-5 py-2.5 text-right">Commission</th>
-                                    <th class="px-5 py-2.5">Status</th>
+                                    <th class="px-4 py-2.5">Date</th>
+                                    <th class="px-4 py-2.5">Type</th>
+                                    <th class="px-4 py-2.5 text-right">Revenue</th>
+                                    <th class="px-4 py-2.5 text-right">Commission</th>
+                                    <th class="px-4 py-2.5">Status</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-ink-100">
                                 @foreach ($revenueEvents as $event)
                                     @php $c = $commissions->firstWhere('revenue_event_id', $event->id); @endphp
-                                    <tr>
-                                        <td class="whitespace-nowrap px-5 py-3 text-ink-600">{{ $event->occurred_at->format('M j, Y') }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3 text-ink-600">{{ ucfirst($event->revenue_type) }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3 text-right text-ink-700">{{ Currency::format($event->revenue_amount, $event->currency) }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3 text-right text-ink-700">{{ $c ? Currency::format($c->commission_amount, $c->currency) : '—' }}</td>
-                                        <td class="whitespace-nowrap px-5 py-3 text-ink-500">{{ $c ? ucfirst($c->effective_status) : 'Not commissioned' }}</td>
+                                    <tr class="hover:bg-ink-50">
+                                        <td class="whitespace-nowrap px-4 py-2.5 text-ink-600">{{ $event->occurred_at->format('M j, Y') }}</td>
+                                        <td class="whitespace-nowrap px-4 py-2.5 text-ink-600">{{ ucfirst($event->revenue_type) }}</td>
+                                        <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-700">{{ Currency::format($event->revenue_amount, $event->currency) }}</td>
+                                        <td class="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-700">{{ $c ? Currency::format($c->commission_amount, $c->currency) : '—' }}</td>
+                                        <td class="whitespace-nowrap px-4 py-2.5 text-ink-500">{{ $c ? ucfirst(str_replace('_', ' ', $c->effective_status)) : 'Not commissioned' }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -110,42 +130,63 @@
             </section>
         </div>
 
-        <aside class="space-y-6" x-data="{ copyLink(url) { navigator.clipboard?.writeText(url); } }">
-            @if ($lead->trackingLink)
-                <section class="rounded-2xl border border-ink-200/70 bg-white p-5 text-sm shadow-subtle">
-                    <h3 class="font-semibold text-ink-900">Referral Link</h3>
-                    @if ($lead->brix_status)
-                        <p class="mt-2 text-ink-500">Installed via this link.</p>
-                    @else
-                        <p class="mt-2 text-ink-500">Send this link so {{ $lead->company_name ?? 'they' }} can install BRIX. Their status here updates automatically once they do.</p>
-                        <div class="mt-3 flex items-center gap-2 rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
-                            <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink-700">{{ $lead->trackingLink->referral_url }}</span>
-                            <button type="button" x-on:click="copyLink('{{ $lead->trackingLink->referral_url }}')"
-                                class="shrink-0 text-ink-400 hover:text-brix-600">
-                                <x-lucide-copy class="h-4 w-4" />
-                            </button>
-                        </div>
-                    @endif
-                </section>
-            @elseif ($lead->brix_status)
-                <section class="rounded-2xl border border-ink-200/70 bg-white p-5 text-sm shadow-subtle">
-                    <h3 class="font-semibold text-ink-900">Shopify Status</h3>
-                    <p class="mt-2 text-ink-500">This store was already on Shopify with BRIX when added, so no referral link was needed.</p>
+        <aside class="space-y-4">
+            @if ($lead->trackingLink && ! $lead->brix_status)
+                <section class="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm" x-data="copyText(@js($lead->trackingLink->referral_url))">
+                    <h3 class="font-semibold text-ink-900">Install link</h3>
+                    <p class="mt-1 text-xs text-ink-600">Send this so {{ $lead->company_name ?? 'they' }} can install BRIX{{ $lead->shop_domain ? ' on '.$lead->shop_domain : '' }}. The status here updates automatically once they do.</p>
+                    <div class="mt-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2">
+                        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink-700">{{ $lead->trackingLink->referral_url }}</span>
+                        <button type="button" x-on:click="copy()" class="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-ink-600 hover:text-ink-900" :aria-label="copied ? 'Copied' : 'Copy link'">
+                            <x-lucide-copy class="h-3.5 w-3.5" x-show="!copied" aria-hidden="true" />
+                            <x-lucide-check class="h-3.5 w-3.5 text-emerald-600" x-show="copied" x-cloak aria-hidden="true" />
+                            <span x-text="copied ? 'Copied' : 'Copy'"></span>
+                        </button>
+                    </div>
                 </section>
             @endif
 
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 text-sm shadow-subtle">
+                <h3 class="font-semibold text-ink-900">Attribution</h3>
+                <dl class="mt-2 divide-y divide-ink-100 text-ink-600">
+                    <div class="{{ $row }}"><dt class="text-ink-400">Source</dt><dd class="text-right font-medium text-ink-800">{{ $sourceLabel }}</dd></div>
+                    @if ($lead->trackingLink)
+                        <div class="{{ $row }}"><dt class="text-ink-400">Referral link</dt>
+                            <dd class="min-w-0 text-right"><a href="{{ route('referral-links.show', $lead->trackingLink) }}" class="font-medium text-ink-800 underline decoration-ink-300 hover:text-ink-900">{{ $lead->trackingLink->name }}</a>
+                                <span class="block font-mono text-[11px] text-ink-400">{{ $lead->trackingLink->code }} · {{ $lead->trackingLink->channel }}</span></dd></div>
+                    @endif
+                    <div class="{{ $row }}"><dt class="text-ink-400">First clicked</dt><dd>{{ $date($lead->first_clicked_at) }}</dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Contacted</dt><dd>{{ $date($lead->contacted_at) }}</dd></div>
+                </dl>
+            </section>
+
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 text-sm shadow-subtle">
+                <h3 class="font-semibold text-ink-900">BRIX</h3>
+                <dl class="mt-2 divide-y divide-ink-100 text-ink-600">
+                    <div class="{{ $row }}"><dt class="text-ink-400">Status</dt><dd class="text-right"><x-lead-install-badge :lead="$lead" /></dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Store</dt><dd class="min-w-0 truncate text-right">{{ $lead->shop_domain ?? '—' }}</dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Plan</dt><dd>{{ $lead->store?->plan ?? $lead->brix_plan ?? '—' }}</dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Installed</dt><dd>{{ $date($lead->installed_at) }}</dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Authorized</dt><dd>{{ $date($authorizedAt) }}</dd></div>
+                    <div class="{{ $row }}"><dt class="text-ink-400">Activated</dt><dd>{{ $date($lead->activated_at) }}</dd></div>
+                </dl>
+                @if ($lead->store)
+                    <a href="{{ route('stores.show', $lead->store) }}" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-600 hover:text-ink-900">Open store <x-lucide-arrow-right class="h-3 w-3" aria-hidden="true" /></a>
+                @endif
+            </section>
+
             @if ($lead->company_name || $lead->contact_name || $lead->contact_email)
-                <section class="rounded-2xl border border-ink-200/70 bg-white p-5 text-sm shadow-subtle">
+                <section class="rounded-xl border border-ink-200/70 bg-white p-4 text-sm shadow-subtle">
                     <h3 class="font-semibold text-ink-900">Contact</h3>
-                    <dl class="mt-3 space-y-2 text-ink-600">
-                        <div class="flex justify-between gap-3"><dt class="shrink-0 text-ink-400">Company</dt><dd class="text-right">{{ $lead->company_name ?? '—' }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt class="shrink-0 text-ink-400">Contact</dt><dd class="text-right">{{ $lead->contact_name ?? '—' }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt class="shrink-0 text-ink-400">Email</dt><dd class="text-right">{{ $lead->contact_email ?? '—' }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt class="shrink-0 text-ink-400">Phone</dt><dd class="text-right">{{ $lead->contact_phone ?? '—' }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt class="shrink-0 text-ink-400">Website</dt><dd class="text-right">{{ $lead->website ?? '—' }}</dd></div>
+                    <dl class="mt-2 divide-y divide-ink-100 text-ink-600">
+                        <div class="{{ $row }}"><dt class="shrink-0 text-ink-400">Company</dt><dd class="text-right">{{ $lead->company_name ?? '—' }}</dd></div>
+                        <div class="{{ $row }}"><dt class="shrink-0 text-ink-400">Contact</dt><dd class="text-right">{{ $lead->contact_name ?? '—' }}</dd></div>
+                        <div class="{{ $row }}"><dt class="shrink-0 text-ink-400">Email</dt><dd class="min-w-0 break-all text-right">@if ($lead->contact_email)<a href="mailto:{{ $lead->contact_email }}" class="hover:text-ink-900">{{ $lead->contact_email }}</a>@else — @endif</dd></div>
+                        <div class="{{ $row }}"><dt class="shrink-0 text-ink-400">Phone</dt><dd class="text-right">{{ $lead->contact_phone ?? '—' }}</dd></div>
+                        <div class="{{ $row }}"><dt class="shrink-0 text-ink-400">Website</dt><dd class="min-w-0 break-all text-right">{{ $lead->website ?? '—' }}</dd></div>
                     </dl>
                     @if ($lead->notes)
-                        <div class="mt-3 border-t border-ink-100 pt-3">
+                        <div class="mt-2 border-t border-ink-100 pt-2">
                             <p class="text-xs font-medium uppercase tracking-wide text-ink-400">Notes</p>
                             <p class="mt-1 whitespace-pre-line text-ink-700">{{ $lead->notes }}</p>
                         </div>
@@ -153,12 +194,13 @@
                 </section>
             @endif
 
-            <section class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
                 <h3 class="text-sm font-semibold text-ink-900">Your outreach</h3>
                 @if ($lead->canChangeStageManually())
                     <form method="POST" action="{{ route('leads.stage', $lead) }}" class="mt-3 space-y-3">
                         @csrf
-                        <select name="lead_stage" class="w-full rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
+                        <label for="lead_stage" class="sr-only">Lead stage</label>
+                        <select id="lead_stage" name="lead_stage" class="w-full rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
                             @foreach ($manualStages as $stage)
                                 <option value="{{ $stage }}" @selected($lead->lead_stage === $stage)>{{ ucwords(strtolower(str_replace('_', ' ', $stage))) }}</option>
                             @endforeach
@@ -168,16 +210,6 @@
                 @else
                     <p class="mt-2 text-sm text-ink-500">This lead is matched to a BRIX store, so its stage follows the store's real install status.</p>
                 @endif
-            </section>
-
-            <section class="rounded-2xl border border-ink-200/70 bg-white p-5 text-sm shadow-subtle">
-                <h3 class="font-semibold text-ink-900">Key dates</h3>
-                <dl class="mt-3 space-y-2 text-ink-600">
-                    <div class="flex justify-between"><dt>First clicked</dt><dd>{{ $lead->first_clicked_at?->format('M j, Y') ?? '—' }}</dd></div>
-                    <div class="flex justify-between"><dt>Contacted</dt><dd>{{ $lead->contacted_at?->format('M j, Y') ?? '—' }}</dd></div>
-                    <div class="flex justify-between"><dt>Installed</dt><dd>{{ $lead->installed_at?->format('M j, Y') ?? '—' }}</dd></div>
-                    <div class="flex justify-between"><dt>Activated</dt><dd>{{ $lead->activated_at?->format('M j, Y') ?? '—' }}</dd></div>
-                </dl>
             </section>
         </aside>
     </div>

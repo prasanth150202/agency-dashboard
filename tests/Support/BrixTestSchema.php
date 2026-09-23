@@ -323,6 +323,21 @@ trait BrixTestSchema
         );
     }
 
+    /**
+     * Lets ShopifyStoreResolver treat fake test hosts as public, so storefront
+     * lookups hit Http::fake() without a real DNS resolution.
+     */
+    protected function allowStorefrontLookups(): void
+    {
+        $this->app->instance(\App\Services\Shopify\ShopifyStoreResolver::class, new class extends \App\Services\Shopify\ShopifyStoreResolver
+        {
+            protected function isPublicHost(string $host): bool
+            {
+                return true;
+            }
+        });
+    }
+
     protected function loginAsAdmin(string $role = 'SUPER_ADMIN'): \App\Models\Admin\AdminUser
     {
         $admin = \App\Models\Admin\AdminUser::create([

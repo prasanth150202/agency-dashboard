@@ -34,12 +34,17 @@
             </div>
         @endif
 
-        <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <x-metric-card label="Available for Payout" :value="Currency::format($metrics['available'], $organisation->currency)" icon="wallet" prominent />
-            <x-metric-card label="Pending Request" :value="Currency::format($metrics['pending'] + $metrics['processing'], $organisation->currency)" icon="clock" />
-            <x-metric-card label="Paid" :value="Currency::format($metrics['paid'], $organisation->currency)" icon="circle-check-big" />
-            <x-metric-card label="Total Earned" :value="Currency::format($metrics['total_earned'], $organisation->currency)" icon="trending-up" />
-        </div>
+        <section class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-label="Payout summary">
+            <x-kpi-card label="Available for Payout" :value="Currency::format($metrics['available'], $organisation->currency)" context="ready to request" icon="wallet" />
+            <x-kpi-card label="Pending Review" :value="Currency::format($metrics['awaiting_review'], $organisation->currency)" context="requested, awaiting review"
+                icon="clock" :href="route('payouts', ['filter' => 'pending'])" />
+            <x-kpi-card label="Approved" :value="Currency::format($metrics['approved'], $organisation->currency)" context="approved or processing"
+                icon="hand-coins" :href="route('payouts', ['filter' => 'approved'])" />
+            <x-kpi-card label="Paid" :value="Currency::format($metrics['paid'], $organisation->currency)" context="settled to your account"
+                icon="circle-check-big" :href="route('payouts', ['filter' => 'paid'])" />
+            <x-kpi-card label="Total Earned" :value="Currency::format($metrics['total_earned'], $organisation->currency)" context="lifetime store commission"
+                icon="trending-up" :href="route('earnings')" />
+        </section>
 
         {{-- Payout account summary --}}
         <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
@@ -172,6 +177,43 @@
                 @endif
             @endif
         </div>
+
+        @php $requestCount = $distribution->sum('count'); @endphp
+        @if ($requestCount > 0)
+            <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="dist-heading">
+                    <h3 id="dist-heading" class="text-sm font-semibold text-ink-900">Requests by status <span class="font-normal text-ink-400">· all time</span></h3>
+                    <div class="mt-3 flex h-2.5 overflow-hidden rounded-full bg-ink-100" aria-hidden="true">
+                        @foreach ($distribution as $d)
+                            @if ($d['count'] > 0)<span class="{{ $d['color'] }}" style="width: {{ $d['count'] / $requestCount * 100 }}%"></span>@endif
+                        @endforeach
+                    </div>
+                    <ul class="mt-3 space-y-0.5">
+                        @foreach ($distribution as $key => $d)
+                            <li>
+                                @php $href = in_array($key, ['pending', 'approved', 'paid', 'rejected'], true) ? route('payouts', ['filter' => $key]) : null; @endphp
+                                <{{ $href ? 'a' : 'div' }} @if ($href) href="{{ $href }}" @endif class="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm {{ $href ? 'transition hover:bg-ink-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600' : '' }}">
+                                    <span class="flex items-center gap-2 text-ink-700"><span class="h-2 w-2 rounded-full {{ $d['color'] }}" aria-hidden="true"></span>{{ $d['label'] }}</span>
+                                    <span class="text-right tabular-nums">
+                                        <span class="font-semibold text-ink-900">{{ $d['count'] }}</span>
+                                        <span class="block text-[11px] text-ink-400">{{ Currency::format($d['amount'], $organisation->currency) }}</span>
+                                    </span>
+                                </{{ $href ? 'a' : 'div' }}>
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
+
+                <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle lg:col-span-2" aria-labelledby="paid-heading">
+                    <div class="mb-3 flex items-baseline justify-between">
+                        <h3 id="paid-heading" class="text-sm font-semibold text-ink-900">Paid out over time</h3>
+                        <span class="text-[11px] text-ink-400">Last 12 months · by month paid</span>
+                    </div>
+                    <x-trend-chart :chart="$paidChart" height="h-48" empty-title="Nothing paid out in the last 12 months"
+                        empty-text="Paid amounts appear here once a payout is marked paid." />
+                </section>
+            </div>
+        @endif
 
         <x-request-payout-modal :minimum-payout="$minimumPayout" :available-balance="$metrics['available']" />
     </div>

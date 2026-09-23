@@ -12,12 +12,22 @@
             </div>
         </div>
 
-        <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <x-metric-card label="Total Earned" :value="$show('total_earned')" icon="trending-up" />
-            <x-metric-card label="Pending" :value="$show('pending')" icon="clock" />
-            <x-metric-card label="Available" :value="$show('available')" icon="wallet" prominent />
-            <x-metric-card label="Paid" :value="$show('paid')" icon="circle-check-big" />
-        </div>
+        <section class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-label="Commission summary, all time">
+            <x-kpi-card label="Total Earned" :value="$show('total_earned')" context="all time, store + referral" icon="trending-up" :href="route('earnings')" />
+            <x-kpi-card label="Available" :value="$show('available')" context="ready to request" icon="wallet" :href="route('payouts')" />
+            <x-kpi-card label="In Payout" :value="$show('in_payout')" context="claimed by a payout request" icon="hand-coins" :href="route('earnings', ['status' => 'in_payout'])" />
+            <x-kpi-card label="Paid" :value="$show('paid')" context="settled" icon="circle-check-big" :href="route('earnings', ['status' => 'paid'])" />
+            <x-kpi-card label="Pending" :value="$show('pending')" context="inside holding period" icon="clock" :href="route('earnings', ['status' => 'pending'])" />
+        </section>
+
+        <section class="mt-4 rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="commission-trend-heading">
+            <div class="mb-3 flex items-baseline justify-between">
+                <h3 id="commission-trend-heading" class="text-sm font-semibold text-ink-900">Commission earned over time</h3>
+                <span class="text-[11px] text-ink-400">Last 6 months · weekly</span>
+            </div>
+            <x-trend-chart :chart="$commissionChart" height="h-48" empty-title="No commission earned in the last 6 months"
+                empty-text="Commission appears when a referred or connected store is billed." />
+        </section>
 
         <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             {{-- Commission Ledger --}}

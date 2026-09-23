@@ -187,6 +187,28 @@ class Lead extends Model
         });
     }
 
+    public const SOURCE_FILTERS = ['manual' => 'Manual', 'referral' => 'Referral link', 'qr' => 'QR'];
+
+    /**
+     * How the lead reached us, derived from real rows — never an entered
+     * field. "qr" = the lead's own referral link was scanned as a QR for
+     * this shop; QR is the same link attribution, just labelled.
+     */
+    public function scopeSourceFilter(Builder $query, ?string $source): Builder
+    {
+        $qrClick = fn ($q) => $q->selectRaw('1')->from('referral_clicks')
+            ->whereColumn('referral_clicks.tracking_link_id', 'leads.tracking_link_id')
+            ->whereColumn('referral_clicks.shop_domain', 'leads.shop_domain')
+            ->where('referral_clicks.source', ReferralClick::SOURCE_QR);
+
+        return match ($source) {
+            'manual' => $query->where('leads.source', self::SOURCE_MANUAL),
+            'referral' => $query->where('leads.source', self::SOURCE_REFERRAL)->whereNotExists($qrClick),
+            'qr' => $query->whereExists($qrClick),
+            default => $query,
+        };
+    }
+
     public function scopeForAgency(Builder $query, int $agencyId): Builder
     {
         return $query->where('agency_id', $agencyId);

@@ -31,6 +31,8 @@ class AddLeadTest extends TestCase
         $this->createBrixScaffoldTables();
         $this->createFinanceScaffoldTables();
         $this->createTenancyTables();
+        $this->fakeCartninjaShops();
+        $this->allowStorefrontLookups();
         config()->set('services.shopify.internal_secret', 'test-secret');
         config()->set('services.shopify.backend_url', 'https://backend.test');
         Http::fake([
@@ -195,15 +197,18 @@ class AddLeadTest extends TestCase
     {
         Http::swap(new \Illuminate\Http\Client\Factory);
         Http::fake([
-            '*' => Http::response(['success' => true, 'data' => ['installed' => true]]),
+            'https://acme.com/meta.json' => Http::response(['myshopify_domain' => 'acme.myshopify.com']),
         ]);
+        $this->seedCartninjaShop('acme.myshopify.com', now()->subMonth());
 
         [$agency] = $this->login();
 
         $this->post('/leads', [
             'company_name' => 'Installed Acme Co', 'contact_name' => 'Jane Doe', 'contact_email' => 'jane@acme.test',
-            'website' => 'https://acme.myshopify.com',
+            'website' => 'https://acme.com',
         ])->assertRedirect();
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'store_install_status'));
 
         $lead = Lead::where('company_name', 'Installed Acme Co')->firstOrFail();
         $this->assertSame($agency->id, $lead->agency_id);

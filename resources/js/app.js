@@ -1,8 +1,10 @@
 import './bootstrap';
 
 import Alpine from 'alpinejs';
+import { registerCharts } from './charts';
 
 window.Alpine = Alpine;
+registerCharts(Alpine);
 
 Alpine.data('layout', () => ({
     sidebarCollapsed: localStorage.getItem('brix:sidebar-collapsed') === '1',

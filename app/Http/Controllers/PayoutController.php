@@ -7,7 +7,10 @@ use App\Models\Organisation;
 use App\Models\Partners\ActivityLog;
 use App\Models\Payout;
 use App\Models\Referral\ReferralCommission;
+use App\Services\Analytics\AgencyAnalytics;
+use App\Services\Analytics\TrendChart;
 use App\Services\Finance\UnifiedCommissionService;
+use App\Support\AnalyticsPeriod;
 use App\Support\Currency;
 use App\Support\DecimalMoney;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class PayoutController extends Controller
@@ -47,6 +51,11 @@ class PayoutController extends Controller
             ->paginate(10)
             ->withQueryString();
 
+        // One grouped query: request count + amount per status, this organisation only.
+        $byStatus = $organisation->payouts()
+            ->groupBy('status')->selectRaw('status, COUNT(*) as n, SUM(amount) as total')->get()->keyBy('status');
+        $sumOf = fn (array $statuses) => (float) collect($statuses)->sum(fn ($s) => (float) ($byStatus[$s]->total ?? 0));
+
         return view('payouts.index', [
             'organisation' => $organisation,
             'finance' => $finance,
@@ -57,7 +66,22 @@ class PayoutController extends Controller
                 'processing' => $finance->processingPayouts(),
                 'paid' => $finance->totalPaid(),
                 'total_earned' => $finance->lifetimeEarnings(),
+                'awaiting_review' => $sumOf([Payout::STATUS_PENDING, Payout::STATUS_UNDER_REVIEW]),
+                'approved' => $sumOf([Payout::STATUS_APPROVED, Payout::STATUS_PROCESSING]),
             ],
+            'distribution' => collect([
+                'pending' => ['Pending review', [Payout::STATUS_PENDING, Payout::STATUS_UNDER_REVIEW], 'bg-amber-500'],
+                'approved' => ['Approved / processing', [Payout::STATUS_APPROVED, Payout::STATUS_PROCESSING], 'bg-blue-500'],
+                'paid' => ['Paid', [Payout::STATUS_PAID], 'bg-emerald-500'],
+                'rejected' => ['Rejected', [Payout::STATUS_REJECTED], 'bg-rose-500'],
+                'closed' => ['Cancelled / failed', [Payout::STATUS_CANCELLED, Payout::STATUS_FAILED], 'bg-ink-300'],
+            ])->map(fn ($d) => [
+                'label' => $d[0],
+                'color' => $d[2],
+                'count' => (int) collect($d[1])->sum(fn ($s) => (int) ($byStatus[$s]->n ?? 0)),
+                'amount' => $sumOf($d[1]),
+            ]),
+            'paidChart' => $this->paidChart($organisation),
             'minimumPayout' => $finance->minimumPayoutAmount(),
             'canRequestPayout' => $finance->canRequestPayout(),
             'hasActiveRequest' => $finance->hasPendingOrProcessingPayout(),
@@ -65,6 +89,35 @@ class PayoutController extends Controller
             'filter' => $filter,
             'search' => $search,
         ]);
+    }
+
+    /** Amounts actually paid out, by the month they were paid, last 12 months. */
+    private function paidChart(Organisation $organisation): array
+    {
+        $period = AnalyticsPeriod::make('12m');
+        $money = [];
+
+        // paid_amount/paid_currency record what was actually settled and arrive
+        // with the manual-transfer migration. That migration has not run on
+        // every brix_superadmin database, so fall back to the requested amount
+        // rather than failing the page — both are real figures, never estimated.
+        $settled = Schema::hasColumn('payouts', 'paid_amount');
+
+        $rows = $organisation->payouts()->where('status', Payout::STATUS_PAID)
+            ->whereNotNull('paid_at')->where('paid_at', '>=', $period->from)
+            ->get(array_merge(['paid_at', 'amount', 'currency'], $settled ? ['paid_amount', 'paid_currency'] : []));
+
+        foreach ($rows as $payout) {
+            $date = $payout->paid_at->toDateString();
+            $currency = strtoupper(($settled ? $payout->paid_currency : null) ?: ($payout->currency ?: $organisation->currency));
+            $money[$date][$currency] = ($money[$date][$currency] ?? 0)
+                + DecimalMoney::toCents(($settled ? $payout->paid_amount : null) ?? $payout->amount);
+        }
+
+        return TrendChart::build([
+            'buckets' => AgencyAnalytics::bucketRows($period->buckets(null, 'month'), [], ['paid' => $money]),
+            'currencies' => collect($money)->flatMap(fn ($c) => array_keys($c))->unique()->sort()->values()->all(),
+        ], ['paid'], $organisation->currency);
     }
 
     /**

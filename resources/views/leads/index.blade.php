@@ -45,26 +45,100 @@
             'installed' => 'Installed', 'active' => 'Active / Won', 'churned' => 'Churned', 'lost' => 'Lost',
         ];
         $activeView = $filters['view'] ?? 'all';
+        $periodQuery = $period->key === 'all' ? [] : $period->query();
+        $url = fn (array $overrides) => route('leads.index', array_filter(array_merge($filters, $periodQuery, $overrides), fn ($v) => $v !== null && $v !== ''));
+        $stageLabel = fn (string $s) => ucwords(strtolower(str_replace('_', ' ', $s)));
+        $pipeline = [\App\Models\Referral\Lead::STAGE_NEW, 'CONTACTED', 'INTERESTED', 'INSTALL_STARTED', 'INSTALLED', 'ACTIVE'];
+        $pipelineTop = max(1, ...array_map(fn ($s) => (int) ($stageCounts[$s] ?? 0), $pipeline));
+        $activeStage = $filters['stage'] ?? null;
     @endphp
-    <div class="mt-6 flex flex-wrap gap-2 border-b border-ink-200/70">
+
+    {{-- Period + source --}}
+    <div class="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <x-period-filter :period="$period" :options="['all', '7d', '30d', '3m', '6m', 'ytd', 'custom']"
+            :keep="array_intersect_key($filters, array_flip(['search', 'stage', 'link', 'channel', 'view', 'source', 'reached']))" />
+        <nav class="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Lead source">
+            <span class="text-ink-400">Source</span>
+            @foreach (['' => 'All'] + $sources as $key => $label)
+                @php $on = ($filters['source'] ?? '') === $key; @endphp
+                <a href="{{ $url(['source' => $key ?: null, 'page' => null]) }}" @if ($on) aria-current="true" @endif
+                    @class(['rounded-full border px-2.5 py-1 font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600',
+                        'border-ink-900 bg-ink-900 text-white' => $on, 'border-ink-200 bg-white text-ink-600 hover:border-ink-300 hover:text-ink-900' => ! $on])>{{ $label }}</a>
+            @endforeach
+        </nav>
+    </div>
+
+    @if ($reached || $period->key !== 'all')
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">
+            <x-lucide-calendar-days class="h-3.5 w-3.5" aria-hidden="true" />
+            @if ($reached)
+                Leads that <span class="font-medium text-ink-800">{{ $reached === 'installed' ? 'installed BRIX' : 'activated' }}</span> — {{ strtolower($period->label()) }}.
+            @else
+                Leads created {{ strtolower($period->label()) }}.
+            @endif
+            <a href="{{ route('leads.index') }}" class="font-medium text-ink-700 underline decoration-ink-300 hover:text-ink-900">Clear</a>
+        </p>
+    @endif
+
+    {{-- Stage analytics: every count is a real filter --}}
+    <section class="mt-4 rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-label="Leads by stage">
+        <div class="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+            <a href="{{ $url(['stage' => null, 'page' => null]) }}" @class(['rounded-lg border px-3 py-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600',
+                'border-ink-900 bg-ink-900 text-white' => ! $activeStage, 'border-ink-200/70 hover:border-ink-300 hover:bg-ink-50' => $activeStage])>
+                <span @class(['block text-[11px] font-medium', 'text-ink-300' => ! $activeStage, 'text-ink-500' => $activeStage])>Total</span>
+                <span class="block text-lg font-semibold tabular-nums">{{ number_format($totalLeads) }}</span>
+            </a>
+            @foreach ($stages as $stage)
+                @php $on = $activeStage === $stage; @endphp
+                <a href="{{ $url(['stage' => $on ? null : $stage, 'page' => null]) }}" @if ($on) aria-current="true" @endif
+                    @class(['rounded-lg border px-3 py-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600',
+                        'border-ink-900 bg-ink-900 text-white' => $on, 'border-ink-200/70 hover:border-ink-300 hover:bg-ink-50' => ! $on])>
+                    <span @class(['block truncate text-[11px] font-medium', 'text-ink-300' => $on, 'text-ink-500' => ! $on])>{{ $stageLabel($stage) }}</span>
+                    <span class="block text-lg font-semibold tabular-nums">{{ number_format($stageCounts[$stage] ?? 0) }}</span>
+                </a>
+            @endforeach
+        </div>
+
+        <div class="mt-4">
+            <p class="text-[11px] font-medium uppercase tracking-wide text-ink-400">Pipeline</p>
+            <ol class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                @foreach ($pipeline as $i => $stage)
+                    @php $count = (int) ($stageCounts[$stage] ?? 0); @endphp
+                    <li>
+                        <a href="{{ $url(['stage' => $stage, 'page' => null]) }}" class="group block rounded-lg px-1 py-1 transition hover:bg-ink-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600">
+                            <span class="flex items-center justify-between text-[11px]">
+                                <span class="flex items-center gap-1 text-ink-600 group-hover:text-ink-900">
+                                    @if ($i > 0)<x-lucide-chevron-right class="h-3 w-3 text-ink-300" aria-hidden="true" />@endif{{ $stageLabel($stage) }}
+                                </span>
+                                <span class="font-semibold tabular-nums text-ink-900">{{ $count }}</span>
+                            </span>
+                            <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-ink-100" aria-hidden="true">
+                                <span @class(['block h-full rounded-full', 'bg-emerald-500' => $stage === 'ACTIVE', 'bg-blue-500' => $stage !== 'ACTIVE'])
+                                    style="width: {{ $count > 0 ? max(4, round($count / $pipelineTop * 100)) : 0 }}%"></span>
+                            </span>
+                        </a>
+                    </li>
+                @endforeach
+            </ol>
+            <p class="mt-2 text-[11px] text-ink-400">Lead stage is your pipeline. BRIX status (install state) is shown separately per lead.</p>
+        </div>
+    </section>
+
+    <div class="mt-5 flex flex-wrap gap-x-4 gap-y-1 overflow-x-auto border-b border-ink-200/70 scrollbar-none">
         @foreach ($viewTabs as $key => $label)
             <a
-                href="{{ route('leads.index', array_filter(array_merge($filters, ['view' => $key === 'all' ? null : $key]))) }}"
-                class="border-b-2 px-1 pb-3 text-sm font-medium {{ $activeView === $key ? 'border-brix-600 text-brix-700' : 'border-transparent text-ink-400 hover:text-ink-700' }}"
+                href="{{ $url(['view' => $key === 'all' ? null : $key, 'page' => null]) }}"
+                class="whitespace-nowrap border-b-2 px-1 pb-3 text-sm font-medium {{ $activeView === $key ? 'border-brix-600 text-brix-700' : 'border-transparent text-ink-400 hover:text-ink-700' }}"
             >
                 {{ $label }} <span class="text-xs text-ink-400">({{ $viewCounts[$key] ?? 0 }})</span>
             </a>
         @endforeach
     </div>
 
-    <div class="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <x-metric-card label="Total Leads" :value="$totalLeads" icon="users" />
-        <x-metric-card label="Contacted / Interested" :value="($stageCounts['CONTACTED'] ?? 0) + ($stageCounts['INTERESTED'] ?? 0)" icon="message-circle" />
-        <x-metric-card label="Installed" :value="$stageCounts['INSTALLED'] ?? 0" icon="download" />
-        <x-metric-card label="Active" :value="$stageCounts['ACTIVE'] ?? 0" icon="circle-check-big" />
-    </div>
-
-    <form method="GET" action="{{ route('leads.index') }}" class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <form method="GET" action="{{ route('leads.index') }}" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        @foreach (array_merge($periodQuery, array_intersect_key($filters, array_flip(['view', 'source', 'reached']))) as $name => $value)
+            @if (filled($value))<input type="hidden" name="{{ $name }}" value="{{ $value }}">@endif
+        @endforeach
         <input type="search" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Search store or domain"
             class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500 lg:col-span-2" />
         <select name="stage" class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">

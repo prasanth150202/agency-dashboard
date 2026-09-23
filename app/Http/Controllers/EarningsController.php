@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Commission;
 use App\Models\Organisation;
+use App\Services\Analytics\AgencyAnalytics;
+use App\Services\Analytics\TrendChart;
 use App\Services\Finance\LedgerEntry;
+use App\Support\AnalyticsPeriod;
 use App\Services\Finance\UnifiedCommissionService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -67,6 +70,11 @@ class EarningsController extends Controller
             'organisation' => $organisation,
             'finance' => $finance,
             'summary' => $unified->summary(),
+            'commissionChart' => TrendChart::build(
+                (new AgencyAnalytics($organisation))->series(AnalyticsPeriod::make('6m')),
+                ['commission'],
+                $unified->currency()
+            ),
             'metrics' => [
                 'available' => $finance->availableBalance(),
             ],

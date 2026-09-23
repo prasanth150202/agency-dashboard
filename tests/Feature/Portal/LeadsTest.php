@@ -221,6 +221,105 @@ class LeadsTest extends TestCase
         $this->assertSame(1, Lead::where('shop_domain', 'dup-shop.myshopify.com')->count());
     }
 
+    public function test_custom_domain_lead_link_skips_the_store_step_and_install_marks_the_lead_installed(): void
+    {
+        $this->allowStorefrontLookups();
+        Http::fake([
+            'https://coolgadgets.com/meta.json' => Http::response(['myshopify_domain' => 'cool-gadgets.myshopify.com']),
+        ]);
+        $a = $this->makeTenant('Agency A');
+        $this->actAs($a);
+
+        $this->post('/leads', [
+            'company_name' => 'Cool Gadgets', 'contact_name' => 'Jo', 'contact_email' => 'jo@cool.test',
+            'website' => 'https://coolgadgets.com/collections/all',
+        ])->assertSessionHasNoErrors();
+
+        $lead = Lead::where('company_name', 'Cool Gadgets')->firstOrFail();
+        $this->assertSame('cool-gadgets.myshopify.com', $lead->shop_domain);
+        $this->assertNull($lead->brix_status);
+
+        // The merchant is never asked for their store — straight to the install for that shop.
+        $this->get('/ref/'.$lead->trackingLink->code)
+            ->assertRedirect($lead->trackingLink->destination_url);
+        $this->assertStringContainsString('shop=cool-gadgets.myshopify.com', $lead->trackingLink->destination_url);
+
+        $this->seedCartninjaShop('cool-gadgets.myshopify.com', now());
+        $this->postJson('/internal/shopify/agency/store-installed', ['shop_domain' => 'cool-gadgets.myshopify.com'], ['X-Internal-Secret' => 'test-secret'])
+            ->assertOk();
+
+        $lead->refresh();
+        $this->assertSame('INSTALLED', $lead->brix_status);
+        $this->assertSame(Lead::STAGE_INSTALLED, $lead->lead_stage);
+        $this->assertNotNull($lead->store_id);
+        $this->assertSame($a['agency']->id, $lead->store->agency_id);
+        $this->assertSame(1, Lead::where('shop_domain', 'cool-gadgets.myshopify.com')->count());
+
+        $this->get('/leads')->assertOk()->assertSee('Installed');
+    }
+
+    public function test_install_without_clicking_the_leads_link_does_not_credit_the_lead(): void
+    {
+        $a = $this->makeTenant('Agency A');
+        $this->actAs($a);
+        $this->post('/leads', [
+            'company_name' => 'Direct', 'contact_name' => 'Jo', 'contact_email' => 'jo@direct.test',
+            'website' => 'direct-shop.myshopify.com',
+        ]);
+
+        $this->seedCartninjaShop('direct-shop.myshopify.com', now());
+        $this->postJson('/internal/shopify/agency/store-installed', ['shop_domain' => 'direct-shop.myshopify.com'], ['X-Internal-Secret' => 'test-secret'])
+            ->assertOk();
+
+        $this->assertNull(Lead::where('shop_domain', 'direct-shop.myshopify.com')->value('brix_status'));
+    }
+
+    public function test_non_shopify_website_is_rejected(): void
+    {
+        $this->allowStorefrontLookups();
+        Http::fake(['https://plain-site.com*' => Http::response('<html>WordPress</html>')]);
+        $a = $this->makeTenant('Agency A');
+        $this->actAs($a);
+
+        $this->post('/leads', [
+            'company_name' => 'Plain', 'contact_name' => 'Jo', 'contact_email' => 'jo@plain.test',
+            'website' => 'https://plain-site.com',
+        ])->assertSessionHasErrors('website');
+
+        $this->assertSame(0, Lead::count());
+    }
+
+    public function test_uninstalled_shop_in_cartdrawer_gets_an_install_link(): void
+    {
+        \Illuminate\Support\Facades\DB::connection('cartninja')->statement('ALTER TABLE shops ADD COLUMN status TEXT');
+        \Illuminate\Support\Facades\DB::connection('cartninja')->table('shops')->insert([
+            'shop_domain' => 'gone-shop.myshopify.com', 'plan_key' => 'free', 'status' => 'uninstalled',
+        ]);
+        $a = $this->makeTenant('Agency A');
+        $this->actAs($a);
+
+        $this->post('/leads', [
+            'company_name' => 'Gone', 'contact_name' => 'Jo', 'contact_email' => 'jo@gone.test',
+            'website' => 'gone-shop.myshopify.com',
+        ])->assertSessionHas('createdLink');
+
+        $lead = Lead::where('shop_domain', 'gone-shop.myshopify.com')->firstOrFail();
+        $this->assertNull($lead->brix_status);
+        $this->assertNotNull($lead->tracking_link_id);
+    }
+
+    public function test_storefront_lookup_never_fetches_private_or_local_hosts(): void
+    {
+        Http::fake();
+        $resolver = new \App\Services\Shopify\ShopifyStoreResolver;
+
+        foreach (['http://127.0.0.1/', 'localhost', 'http://10.0.0.5', 'http://169.254.169.254/latest/meta-data', 'file:///etc/passwd'] as $url) {
+            $this->assertNull($resolver->resolve($url), $url);
+        }
+
+        Http::assertNothingSent();
+    }
+
     private function seedCartninjaShopWithPlan(string $domain, string $plan): void
     {
         \Illuminate\Support\Facades\DB::connection('cartninja')->table('shops')->insert([

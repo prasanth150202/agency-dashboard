@@ -30,9 +30,14 @@ class QrReferralController extends Controller
             ->groupBy('tracking_link_id')
             ->pluck('scans', 'tracking_link_id');
 
+        // Selected only from this agency's own links — a foreign id just falls back to the first.
+        $selected = $links->firstWhere('id', (int) $request->query('link')) ?? $links->first();
+
         return view('qr.index', [
             'links' => $links,
             'scans' => $scans,
+            'selected' => $selected,
+            'selectedQrUrl' => $selected ? ReferralQr::url($selected) : null,
             'qrSvg' => $links->mapWithKeys(fn (TrackingLink $l) => [$l->id => ReferralQr::svg($l, 220)]),
         ]);
     }

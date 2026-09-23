@@ -111,7 +111,8 @@
                                 <th class="px-5 py-3">Status</th>
                                 <th class="px-5 py-3 text-right">Clicks</th>
                                 <th class="px-5 py-3 text-right">Leads</th>
-                                <th class="px-5 py-3 text-right">Active Stores</th>
+                                <th class="px-5 py-3 text-right">Installed</th>
+                                <th class="px-5 py-3 text-right">Active</th>
                                 <th class="px-5 py-3 text-right">Revenue</th>
                                 <th class="px-5 py-3 text-right">Commission</th>
                                 <th class="px-5 py-3">Last Activity</th>
@@ -120,10 +121,10 @@
                         </thead>
                         <tbody class="divide-y divide-ink-100">
                             @foreach ($links as $link)
-                                <tr class="hover:bg-ink-50" x-data="{ actionsOpen: false }">
+                                <tr class="group relative transition hover:bg-ink-50 motion-reduce:transition-none" x-data="{ actionsOpen: false }">
                                     <td class="px-5 py-3.5">
-                                        <p class="font-medium text-ink-900">{{ $link->name }}</p>
-                                        <p class="mt-0.5 text-xs text-ink-500">{{ $link->campaign_name ?? '—' }}</p>
+                                        <a href="{{ route('referral-links.show', $link) }}" class="font-medium text-ink-900 after:absolute after:inset-0 after:content-[''] hover:underline focus:outline-none focus-visible:underline">{{ $link->name }}</a>
+                                        @if ($link->campaign_name)<p class="mt-0.5 text-xs text-ink-500">{{ $link->campaign_name }}</p>@endif
                                         <p class="mt-0.5 font-mono text-xs text-ink-400">{{ $link->code }}</p>
                                     </td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-600">{{ $link->channel }}</td>
@@ -133,13 +134,14 @@
                                             :label="ucfirst(strtolower($link->status))"
                                         />
                                     </td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ $link->clicks_count }}</td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ $link->leads_count }}</td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium text-ink-900">{{ $link->active_stores_count }}</td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right text-ink-600">{{ Currency::format($link->revenue, $revenueCurrency) }}</td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right text-ink-600">{{ Currency::format($link->commission, $revenueCurrency) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium tabular-nums text-ink-900">{{ number_format($link->clicks_count) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium tabular-nums text-ink-900">{{ number_format($link->leads_count) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium tabular-nums text-ink-900">{{ number_format($link->installed_count) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right font-medium tabular-nums text-ink-900">{{ number_format($link->active_stores_count) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right tabular-nums text-ink-600">{{ $link->revenue ? \App\Services\Analytics\TrendChart::money($link->revenue) : Currency::format(0, $revenueCurrency) }}</td>
+                                    <td class="whitespace-nowrap px-5 py-3.5 text-right tabular-nums text-ink-600">{{ $link->commission ? \App\Services\Analytics\TrendChart::money($link->commission) : Currency::format(0, $revenueCurrency) }}</td>
                                     <td class="whitespace-nowrap px-5 py-3.5 text-ink-500">{{ $link->last_activity_at?->diffForHumans() ?? '—' }}</td>
-                                    <td class="whitespace-nowrap px-5 py-3.5 text-right">
+                                    <td class="relative z-10 whitespace-nowrap px-5 py-3.5 text-right">
                                         <div class="relative inline-block text-left">
                                             <button type="button" x-on:click="actionsOpen = !actionsOpen" x-on:click.outside="actionsOpen = false" class="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
                                                 <x-lucide-ellipsis-vertical class="h-4 w-4" />
@@ -154,6 +156,10 @@
                                                     <x-lucide-copy class="h-3.5 w-3.5" />
                                                     Copy Link
                                                 </button>
+                                                <a href="{{ route('referral-links.show', $link) }}" class="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-700 hover:bg-ink-50">
+                                                    <x-lucide-activity class="h-3.5 w-3.5" />
+                                                    Performance
+                                                </a>
                                                 <a href="{{ route('referral-links.leads', $link) }}" class="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-700 hover:bg-ink-50">
                                                     <x-lucide-users class="h-3.5 w-3.5" />
                                                     View Leads

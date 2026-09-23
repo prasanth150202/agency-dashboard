@@ -1,38 +1,37 @@
 @php
+    use App\Services\Analytics\TrendChart;
     use App\Services\Referral\ReferralReporting as Money;
     use App\Support\Currency;
-    $rangeLabels = ['30' => '30d', '90' => '90d', '365' => '1y', 'all' => 'All time'];
+
+    $breakdowns = ['By type' => $byType, 'By store' => $byStore, 'By referral link' => $byLink];
 @endphp
 <x-app-layout title="Revenue">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
             <h2 class="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">Revenue</h2>
             <p class="mt-1 text-sm text-ink-500">Verified BRIX billing earned by the stores you referred.</p>
         </div>
-        <div class="inline-flex rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
-            @foreach ($ranges as $r)
-                <a href="{{ route('revenue.index', array_filter(['range' => $r, 'type' => $type, 'link' => $linkId])) }}"
-                   class="rounded-md px-3 py-1.5 font-medium {{ (string) $range === (string) $r ? 'bg-ink-900 text-white' : 'text-ink-600 hover:text-ink-900' }}">{{ $rangeLabels[$r] }}</a>
-            @endforeach
-        </div>
+        <x-period-filter :period="$period" :options="['7d', '30d', '3m', '6m', '12m', 'ytd', 'all', 'custom']" :keep="['type' => $type, 'link' => $linkId]" />
     </div>
 
     <p class="mt-3 text-xs text-ink-500">
         Only verified billing events count, in the currency they were billed. Amounts in different currencies are never added together.
         @if ($subscriptionNotVerifiable)
-            Recurring subscription revenue is not yet verifiable and is not included.
+            <span class="mt-1 flex items-center gap-1.5 font-medium text-amber-700"><x-lucide-circle-alert class="h-3.5 w-3.5" aria-hidden="true" /> Recurring subscription revenue is not yet verifiable and is not included — it is not estimated.</span>
         @endif
     </p>
 
-    <form method="GET" action="{{ route('revenue.index') }}" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <input type="hidden" name="range" value="{{ $range }}" />
-        <select name="type" class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
+    <form method="GET" action="{{ route('revenue.index') }}" class="mt-4 flex flex-col gap-3 sm:flex-row">
+        @foreach ($period->query() as $name => $value)<input type="hidden" name="{{ $name }}" value="{{ $value }}" />@endforeach
+        <label class="sr-only" for="rev-type">Revenue type</label>
+        <select id="rev-type" name="type" class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
             <option value="">All revenue types</option>
             @foreach ($types as $t)
                 <option value="{{ $t }}" @selected($type === $t)>{{ ucfirst($t) }}</option>
             @endforeach
         </select>
-        <select name="link" class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
+        <label class="sr-only" for="rev-link">Referral link</label>
+        <select id="rev-link" name="link" class="rounded-lg border-ink-200 text-sm focus:border-brix-500 focus:ring-brix-500">
             <option value="">All links</option>
             @foreach ($links as $link)
                 <option value="{{ $link->id }}" @selected($linkId === $link->id)>{{ $link->name }}</option>
@@ -41,14 +40,26 @@
         <button type="submit" class="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800 sm:w-28">Filter</button>
     </form>
 
-    <div class="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <x-metric-card label="Verified revenue" :value="Money::money($revenue)" icon="trending-up" />
-        <x-metric-card label="Commission earned" :value="Money::money($commission)" icon="indian-rupee" />
-        <x-metric-card label="Billing events" :value="number_format($eventCount)" icon="receipt" />
-        <x-metric-card label="Revenue-earning stores" :value="number_format($storeCount)" icon="store" />
-    </div>
+    <section class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5" aria-label="Revenue summary">
+        <x-kpi-card label="Revenue · {{ strtolower($period->label()) }}" :value="Money::money($revenue)" :change="$growth" :comparison="$period->comparisonLabel()" icon="trending-up"
+            :context="number_format($eventCount).' billing '.Str::plural('event', $eventCount)" />
+        <x-kpi-card label="Previous period" :value="$previousRevenue === null ? 'n/a' : Money::money($previousRevenue)"
+            :context="$previousRevenue === null ? 'no earlier window for all time' : 'same length, just before'" icon="history" />
+        <x-kpi-card label="Growth" :value="$growth === null ? '—' : ($growth >= 0 ? '+' : '').$growth.'%'"
+            :context="$growth === null ? 'not calculable (no base, or mixed currencies)' : 'vs previous period'" icon="activity" />
+        <x-kpi-card label="Commission earned" :value="Money::money($commission)" context="on these events" icon="hand-coins" :href="route('earnings')" />
+        <x-kpi-card label="Revenue-earning stores" :value="number_format($storeCount)" context="in this period" icon="store" />
+    </section>
 
-    <section class="mt-6 overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
+    <section class="mt-4 rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="rev-chart-heading">
+        <div class="mb-3 flex items-baseline justify-between">
+            <h3 id="rev-chart-heading" class="text-sm font-semibold text-ink-900">Revenue over time</h3>
+            <span class="text-[11px] text-ink-400">{{ $period->label() }}</span>
+        </div>
+        <x-trend-chart :chart="$chart" empty-title="No verified revenue in this period" empty-text="Revenue appears once a store you referred is billed by BRIX." />
+    </section>
+
+    <section class="mt-4 overflow-hidden rounded-xl border border-ink-200/70 bg-white shadow-subtle">
         <h3 class="px-5 pt-5 text-sm font-semibold text-ink-900">Last 6 months</h3>
         <div class="mt-3 overflow-x-auto">
             <table class="w-full text-left text-sm">
@@ -72,13 +83,34 @@
         </div>
     </section>
 
+    @if ($eventCount > 0)
+        <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            @foreach ($breakdowns as $title => $items)
+                <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+                    <h3 class="text-sm font-semibold text-ink-900">{{ $title }}</h3>
+                    <ul class="mt-2 divide-y divide-ink-100">
+                        @forelse ($items as $item)
+                            <li class="flex items-center justify-between gap-3 py-2 text-sm">
+                                <span class="min-w-0 truncate text-ink-700">{{ $title === 'By type' ? ucfirst($item['label']) : $item['label'] }}
+                                    <span class="text-[11px] text-ink-400">· {{ $item['count'] }}</span></span>
+                                <span class="shrink-0 whitespace-nowrap font-medium tabular-nums text-ink-900">{{ TrendChart::money($item['revenue']) }}</span>
+                            </li>
+                        @empty
+                            <li class="py-4 text-center text-xs text-ink-400">Nothing yet.</li>
+                        @endforelse
+                    </ul>
+                </section>
+            @endforeach
+        </div>
+    @endif
+
     @if ($rows->isEmpty())
         <div class="mt-6 rounded-2xl border border-dashed border-ink-200 py-16 text-center">
-            <p class="text-sm font-medium text-ink-700">No verified revenue{{ $type || $linkId || $range !== 'all' ? ' for these filters' : ' yet' }}</p>
+            <p class="text-sm font-medium text-ink-700">No verified revenue{{ $type || $linkId || $period->key !== 'all' ? ' for these filters' : ' yet' }}</p>
             <p class="mt-1 text-sm text-ink-500">Revenue appears once a store you referred is billed by BRIX.</p>
         </div>
     @else
-        <section class="mt-6 overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-subtle">
+        <section class="mt-4 overflow-hidden rounded-xl border border-ink-200/70 bg-white shadow-subtle">
             <h3 class="px-5 pt-5 text-sm font-semibold text-ink-900">Billing events</h3>
             <div class="mt-3 overflow-x-auto">
                 <table class="w-full text-left text-sm">

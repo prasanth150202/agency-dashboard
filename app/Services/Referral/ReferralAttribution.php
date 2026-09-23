@@ -146,7 +146,11 @@ class ReferralAttribution
 
         // Rule 3: one lead per shop, ever. An existing lead is preserved
         // as-is; a later referral never creates or overwrites one.
-        if (Lead::where('shop_domain', $shop)->exists()) {
+        if ($existing = Lead::where('shop_domain', $shop)->first()) {
+            if ($outcome = self::completePendingManualLead($existing, $shop, $onboardingAgencyId, $shopifyShopId)) {
+                return $outcome;
+            }
+
             $store = Store::where('shop_domain', $shop)->first();
             if ($store) {
                 self::syncStore($store);
@@ -230,6 +234,87 @@ class ReferralAttribution
         }
 
         ActivityLog::record('REFERRAL_LEAD_CREATED', (int) $link->agency_id, $store?->id, [
+            'shop_domain' => $shop,
+            'lead_id' => $lead->id,
+            'tracking_link_id' => $link->id,
+        ]);
+
+        return self::CREATED;
+    }
+
+    /**
+     * A manually-added lead already carries the shop_domain (extracted from
+     * the agency's submitted website, confirmed not-installed at the time)
+     * and its own dedicated link. When the merchant installs after clicking
+     * THAT link, credit the install to this lead instead of dropping it as
+     * EXISTING_LEAD. Returns null when this isn't that case.
+     */
+    private static function completePendingManualLead(Lead $lead, string $shop, ?int $onboardingAgencyId, ?string $shopifyShopId): ?string
+    {
+        if ($lead->source !== Lead::SOURCE_MANUAL || $lead->tracking_link_id === null || $lead->installed_at !== null) {
+            return null;
+        }
+
+        $click = ReferralClick::with('trackingLink')
+            ->where('tracking_link_id', $lead->tracking_link_id)
+            ->where('shop_domain', $shop)
+            ->where('created_at', '>=', self::attributionWindowStart())
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+
+        if (! $click) {
+            return null;
+        }
+
+        $link = $click->trackingLink;
+
+        if (! $link || $link->status !== TrackingLink::STATUS_ACTIVE) {
+            return self::skip(self::INACTIVE_REFERRAL, $click, $shop);
+        }
+
+        if ($onboardingAgencyId !== null && $onboardingAgencyId !== (int) $lead->agency_id) {
+            return self::skip(self::CONFLICTING_ONBOARDING, $click, $shop);
+        }
+
+        $store = Store::where('shop_domain', $shop)->first();
+
+        if ($store && (int) $store->agency_id !== (int) $lead->agency_id) {
+            return self::skip(self::EXISTING_ATTRIBUTION, $click, $shop);
+        }
+
+        $installedAt = now();
+
+        DB::transaction(function () use ($lead, $click, $shop, $installedAt) {
+            $lead->update([
+                'lead_stage' => Lead::STAGE_INSTALLED,
+                'brix_status' => 'INSTALLED',
+                'first_clicked_at' => $lead->first_clicked_at ?? $click->created_at,
+                'installed_at' => $installedAt,
+            ]);
+
+            $lead->events()->create([
+                'event_type' => LeadEvent::CLICKED,
+                'metadata' => ['referral_click_id' => $click->id, 'referral_code' => $click->referral_code],
+                'created_at' => $click->created_at,
+            ]);
+
+            $lead->events()->create([
+                'event_type' => LeadEvent::INSTALLED,
+                'metadata' => ['shop_domain' => $shop, 'source' => 'install_callback'],
+                'created_at' => $installedAt,
+            ]);
+        });
+
+        if (! $store && $onboardingAgencyId === null) {
+            $store = StoreInstallationSync::mirror($shop, (int) $lead->agency_id, $shopifyShopId, 'referral_install')['store'] ?? null;
+        }
+
+        if ($store) {
+            self::syncStore($store);
+        }
+
+        ActivityLog::record('REFERRAL_MANUAL_LEAD_INSTALLED', (int) $lead->agency_id, $store?->id, [
             'shop_domain' => $shop,
             'lead_id' => $lead->id,
             'tracking_link_id' => $link->id,

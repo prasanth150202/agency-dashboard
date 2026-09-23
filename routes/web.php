@@ -74,6 +74,7 @@ Route::middleware(['auth', 'set.organisation'])->group(function () {
     Route::put('/referral-links/{trackingLink}', [ReferralLinkController::class, 'update'])->name('referral-links.update');
     Route::post('/referral-links/{trackingLink}/activate', [ReferralLinkController::class, 'activate'])->name('referral-links.activate');
     Route::post('/referral-links/{trackingLink}/deactivate', [ReferralLinkController::class, 'deactivate'])->name('referral-links.deactivate');
+    Route::get('/referral-links/{trackingLink}', [ReferralLinkController::class, 'show'])->name('referral-links.show');
     Route::get('/referral-links/{trackingLink}/leads', [ReferralLinkController::class, 'leads'])->name('referral-links.leads');
 
     // This is the agency's "Commissions" page — kept on the existing

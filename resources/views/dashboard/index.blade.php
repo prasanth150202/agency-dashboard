@@ -1,259 +1,190 @@
-<x-app-layout title="Dashboard">
-    @php
-        $hour = now()->hour;
-        $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
-        $firstName = Str::of(auth()->user()->name)->before(' ');
-    @endphp
+@php
+    use App\Services\Analytics\TrendChart;
 
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    $q = $period->query();
+    $money = fn (array $byCurrency) => $byCurrency ? TrendChart::money($byCurrency) : '—';
+    $hour = now()->hour;
+    $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
+    $firstName = Str::of(auth()->user()->name)->before(' ');
+@endphp
+<x-app-layout title="Dashboard">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
             <h2 class="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">{{ $greeting }}, {{ $firstName }}</h2>
-            <p class="mt-1 text-sm text-ink-500">Here's what's happening across your agency.</p>
+            <p class="mt-1 text-sm text-ink-500">
+                Showing <span class="font-medium text-ink-700">{{ strtolower($period->label()) }}</span>
+                <span class="text-ink-400">· {{ $period->from?->format('M j') }} – {{ $period->to->format('M j, Y') }}</span>
+            </p>
         </div>
-
-        <form method="GET" action="{{ route('dashboard') }}">
-            <select
-                name="range"
-                x-data
-                x-on:change="$el.form.submit()"
-                class="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100"
-            >
-                <option value="7" @selected($range === 7)>7 days</option>
-                <option value="30" @selected($range === 30)>30 days</option>
-                <option value="90" @selected($range === 90)>90 days</option>
-            </select>
-        </form>
+        <x-period-filter :period="$period" />
     </div>
 
-    <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <x-metric-card
-            label="Total Stores"
-            :value="$metrics['total_stores']['value']"
-            :delta="$metrics['total_stores']['delta']"
-            :caption="$metrics['total_stores']['caption']"
-            icon="store"
-        />
-        <x-metric-card
-            label="Active Stores"
-            :value="$metrics['active_stores']['value']"
-            :delta="$metrics['active_stores']['delta']"
-            :caption="$metrics['active_stores']['caption']"
-            icon="zap"
-        />
-        <x-metric-card
-            label="Monthly Revenue"
-            :value="'₹' . number_format($metrics['monthly_revenue']['value'])"
-            :delta="$metrics['monthly_revenue']['delta']"
-            :caption="$metrics['monthly_revenue']['caption']"
-            icon="trending-up"
-        />
-        <x-metric-card
-            label="Pending Payout"
-            :value="'₹' . number_format($metrics['pending_payout']['value'])"
-            :delta="$metrics['pending_payout']['delta']"
-            :caption="$metrics['pending_payout']['caption']"
-            icon="wallet"
-        />
-    </div>
+    {{-- KPIs --}}
+    <section aria-label="Key metrics" class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-7">
+        <x-kpi-card label="New Leads" :value="number_format($kpis['leads']['value'])" :change="$kpis['leads']['change']"
+            :comparison="$period->comparisonLabel()" :context="$kpis['leads']['context']" icon="users" :href="route('leads.index', $q)" />
+        <x-kpi-card label="Stores Installed" :value="number_format($kpis['installed']['value'])" :change="$kpis['installed']['change']"
+            :comparison="$period->comparisonLabel()" :context="$kpis['installed']['context']" icon="download" :href="route('stores.index')" />
+        <x-kpi-card label="Active Stores" :value="number_format($kpis['active']['value'])" :context="$kpis['active']['context']"
+            icon="circle-check-big" :href="route('stores.index', ['status' => 'active'])" />
+        <x-kpi-card label="Revenue" :value="$money($kpis['revenue']['value'])" :change="$kpis['revenue']['change']"
+            :comparison="$period->comparisonLabel()" :context="$kpis['revenue']['context']" icon="trending-up" :href="route('revenue.index', $q)" />
+        <x-kpi-card label="Commission" :value="$money($kpis['commission']['value'])" :change="$kpis['commission']['change']"
+            :comparison="$period->comparisonLabel()" :context="$kpis['commission']['context']" icon="hand-coins" :href="route('earnings')" />
+        <x-kpi-card label="Available Payout" :value="$money($kpis['available']['value'])" :context="$kpis['available']['context']"
+            icon="wallet" :href="route('payouts')" />
+        <x-kpi-card label="Pending Payout" :value="$money($kpis['pending_payout']['value'])" :context="$kpis['pending_payout']['context']"
+            icon="clock" :href="route('payouts')" />
+    </section>
 
-    <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {{-- Recent stores --}}
-        <div class="rounded-2xl border border-ink-200/70 bg-white shadow-subtle lg:col-span-2">
-            <div class="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-                <h3 class="text-sm font-semibold text-ink-900">Recent stores</h3>
-                <a href="{{ route('stores.index') }}" class="text-xs font-medium text-brix-600 hover:text-brix-700">View all</a>
+    <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {{-- Trend --}}
+        <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle xl:col-span-2" aria-labelledby="trend-heading">
+            <div class="mb-3 flex items-baseline justify-between gap-2">
+                <h3 id="trend-heading" class="text-sm font-semibold text-ink-900">Revenue &amp; referral trend</h3>
+                <span class="text-[11px] text-ink-400">{{ $period->label() }}</span>
             </div>
+            <x-trend-chart :chart="$chart" height="h-64"
+                empty-title="No revenue or referral activity yet"
+                :empty-text="$hasLinks ? 'Nothing happened in this period — try a longer range.' : 'Share a referral link to start tracking installs and revenue.'"
+                :empty-action="$hasLinks ? null : 'Create Referral Link'" :empty-href="$hasLinks ? null : route('referral-links.index')" />
+        </section>
 
+        {{-- Funnel --}}
+        <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="funnel-heading">
+            <div class="mb-3 flex items-baseline justify-between gap-2">
+                <h3 id="funnel-heading" class="text-sm font-semibold text-ink-900">Referral funnel</h3>
+                <a href="{{ route('tracking.index', $q) }}" class="text-[11px] font-medium text-ink-500 hover:text-ink-900">Full tracking →</a>
+            </div>
+            @if (array_sum($funnel) === 0)
+                <div class="rounded-lg border border-dashed border-ink-200 px-4 py-8 text-center">
+                    <p class="text-sm font-medium text-ink-700">No referral activity yet</p>
+                    <p class="mt-0.5 text-xs text-ink-500">Clicks, leads and installs from your links appear here.</p>
+                    <div class="mt-3 flex justify-center gap-2">
+                        <a href="{{ route('referral-links.index') }}" class="rounded-lg bg-ink-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-ink-800">Create Referral Link</a>
+                        <a href="{{ route('leads.index') }}" class="rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50">Add Lead</a>
+                    </div>
+                </div>
+            @else
+                <x-funnel :steps="[
+                    ['label' => 'Clicks', 'value' => $funnel['clicks'], 'href' => route('tracking.index', $q), 'hint' => $funnel['qr_scans'] ? number_format($funnel['qr_scans']).' from QR scans' : null],
+                    ['label' => 'Leads', 'value' => $funnel['leads'], 'href' => route('leads.index', $q)],
+                    ['label' => 'Installed', 'value' => $funnel['installed'], 'href' => route('leads.index', $q + ['reached' => 'installed'])],
+                    ['label' => 'Active', 'value' => $funnel['active'], 'href' => route('leads.index', $q + ['reached' => 'active'])],
+                ]" caption="Each stage counts what happened inside the period: clicks made, leads created, leads that installed, leads that activated." />
+            @endif
+        </section>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {{-- Activity --}}
+        <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle lg:col-span-2" aria-labelledby="activity-heading">
+            <div class="mb-2 flex items-baseline justify-between">
+                <h3 id="activity-heading" class="text-sm font-semibold text-ink-900">Recent activity</h3>
+                <span class="text-[11px] text-ink-400">{{ $period->label() }}</span>
+            </div>
+            <x-activity-feed :items="$activity" empty="No leads, installs, revenue or payouts in this period." />
+        </section>
+
+        <div class="flex flex-col gap-4">
+            {{-- Weekday activity --}}
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="weekday-heading">
+                <h3 id="weekday-heading" class="text-sm font-semibold text-ink-900">Activity by weekday</h3>
+                <p class="text-[11px] text-ink-400">Referral clicks + new leads, {{ strtolower($period->label()) }}</p>
+                @if ($weekdayMax === 0)
+                    <p class="mt-4 text-xs text-ink-400">No clicks or leads in this period.</p>
+                @else
+                    <ul class="mt-3 grid grid-cols-7 gap-1.5">
+                        @foreach ($weekday as $day => $count)
+                            @php $level = $count === 0 ? 0 : (int) ceil($count / $weekdayMax * 4); @endphp
+                            <li class="text-center" title="{{ $day }}: {{ $count }}">
+                                <span @class(['flex h-9 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums',
+                                    'bg-ink-50 text-ink-300' => $level === 0, 'bg-blue-100 text-blue-800' => $level === 1, 'bg-blue-200 text-blue-900' => $level === 2,
+                                    'bg-blue-400 text-white' => $level === 3, 'bg-blue-600 text-white' => $level === 4])>{{ $count }}</span>
+                                <span class="mt-1 block text-[10px] text-ink-500">{{ $day }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
+
+            {{-- Store health --}}
+            <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle" aria-labelledby="health-heading">
+                <h3 id="health-heading" class="text-sm font-semibold text-ink-900">Store health <span class="font-normal text-ink-400">· now</span></h3>
+                <div class="mt-2 space-y-0.5">
+                    @foreach (['active' => ['Active', 'bg-emerald-500'], 'attention' => ['Attention', 'bg-amber-500'], 'offline' => ['Offline', 'bg-rose-500']] as $status => [$label, $dot])
+                        <a href="{{ route('stores.index', ['status' => $status]) }}" class="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition hover:bg-ink-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brix-600">
+                            <span class="flex items-center gap-2 text-ink-700"><span class="h-2 w-2 rounded-full {{ $dot }}" aria-hidden="true"></span>{{ $label }}</span>
+                            <span class="font-semibold tabular-nums text-ink-900">{{ $storeHealth[$status] }}</span>
+                        </a>
+                    @endforeach
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {{-- Recent stores --}}
+        <section class="rounded-xl border border-ink-200/70 bg-white shadow-subtle lg:col-span-2">
+            <div class="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+                <h3 class="text-sm font-semibold text-ink-900">Recent stores</h3>
+                <a href="{{ route('stores.index') }}" class="text-[11px] font-medium text-ink-500 hover:text-ink-900">View all →</a>
+            </div>
             <ul class="divide-y divide-ink-100">
                 @forelse ($recentStores as $store)
-                    <li class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div class="flex min-w-0 items-center gap-3">
-                            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-900 text-xs font-semibold text-white">
-                                {{ Str::substr($store->name, 0, 1) }}
-                            </div>
-                            <div class="min-w-0">
-                                <a href="{{ route('stores.show', $store) }}" class="block truncate text-sm font-medium text-ink-900 hover:text-brix-700">
-                                    {{ $store->name }}
-                                </a>
-                                <p class="truncate text-xs text-ink-500">{{ $store->shop_domain }}</p>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center gap-4 sm:gap-6">
-                            <x-status-badge :status="$store->status" />
-                            <span class="hidden text-xs text-ink-500 sm:block">
-                                {{ $store->active_modules_count }} / {{ $store->total_modules_count }} modules
+                    <li>
+                        <a href="{{ route('stores.show', $store) }}" class="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-ink-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brix-600">
+                            <span class="flex min-w-0 items-center gap-3">
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-900 text-xs font-semibold text-white" aria-hidden="true">{{ Str::substr($store->name, 0, 1) }}</span>
+                                <span class="min-w-0">
+                                    <span class="block truncate text-sm font-medium text-ink-900">{{ $store->name }}</span>
+                                    <span class="block truncate text-[11px] text-ink-500">{{ $store->shop_domain }}</span>
+                                </span>
                             </span>
-                            <span class="hidden text-xs text-ink-400 md:block">
-                                {{ $store->last_active_at?->diffForHumans() ?? '—' }}
+                            <span class="flex shrink-0 items-center gap-4">
+                                <span class="hidden text-[11px] text-ink-500 sm:inline">{{ $store->active_modules_count }}/{{ $store->total_modules_count }} modules</span>
+                                <x-status-badge :status="$store->status" />
                             </span>
-                            <a
-                                href="{{ $store->safe_app_url }}"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50"
-                            >
-                                <x-lucide-eye class="h-3.5 w-3.5" />
-                                Preview
-                            </a>
-                        </div>
+                        </a>
                     </li>
                 @empty
-                    <li class="px-5 py-10 text-center text-sm text-ink-400">No stores connected yet.</li>
+                    <li class="px-4 py-8 text-center text-xs text-ink-400">No stores connected yet.</li>
                 @endforelse
             </ul>
-        </div>
+        </section>
 
-        {{-- Right column --}}
-        <div class="flex flex-col gap-4">
-            {{-- Store health --}}
-            <div class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-                <h3 class="text-sm font-semibold text-ink-900">Store health</h3>
-                <div class="mt-4 space-y-2.5">
-                    <a href="{{ route('stores.index', ['status' => 'active']) }}" class="flex items-center justify-between rounded-lg px-2.5 py-2 hover:bg-ink-50">
-                        <span class="flex items-center gap-2 text-sm text-ink-700">
-                            <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                            Active
-                        </span>
-                        <span class="text-sm font-semibold text-ink-900">{{ $storeHealth['active'] }}</span>
-                    </a>
-                    <a href="{{ route('stores.index', ['status' => 'attention']) }}" class="flex items-center justify-between rounded-lg px-2.5 py-2 hover:bg-ink-50">
-                        <span class="flex items-center gap-2 text-sm text-ink-700">
-                            <span class="h-2 w-2 rounded-full bg-amber-500"></span>
-                            Attention
-                        </span>
-                        <span class="text-sm font-semibold text-ink-900">{{ $storeHealth['attention'] }}</span>
-                    </a>
-                    <a href="{{ route('stores.index', ['status' => 'offline']) }}" class="flex items-center justify-between rounded-lg px-2.5 py-2 hover:bg-ink-50">
-                        <span class="flex items-center gap-2 text-sm text-ink-700">
-                            <span class="h-2 w-2 rounded-full bg-rose-500"></span>
-                            Offline
-                        </span>
-                        <span class="text-sm font-semibold text-ink-900">{{ $storeHealth['offline'] }}</span>
-                    </a>
-                </div>
+        {{-- Module adoption --}}
+        <section class="rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
+            <h3 class="text-sm font-semibold text-ink-900">Module adoption <span class="font-normal text-ink-400">· now</span></h3>
+            <div class="mt-3 space-y-3">
+                @foreach ($moduleAdoption as $module)
+                    <div>
+                        <div class="mb-1 flex items-center justify-between text-xs">
+                            <span class="font-medium text-ink-700">{{ $module['label'] }}</span>
+                            <span class="tabular-nums text-ink-500">{{ $module['count'] }} stores</span>
+                        </div>
+                        <div class="h-1.5 w-full overflow-hidden rounded-full bg-ink-100" role="progressbar" aria-valuenow="{{ $module['percentage'] }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ $module['label'] }} adoption">
+                            <div class="h-full rounded-full bg-ink-800" style="width: {{ $module['percentage'] }}%"></div>
+                        </div>
+                    </div>
+                @endforeach
             </div>
-
-            {{-- Finance --}}
-            <div class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-                <h3 class="text-sm font-semibold text-ink-900">Finance</h3>
-                <div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
-                    <div>
-                        <p class="text-xs text-ink-500">This Month</p>
-                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['this_month'], 2) }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-ink-500">Available</p>
-                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['available'], 2) }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-ink-500">Pending</p>
-                        <p class="mt-0.5 text-sm font-semibold text-ink-900">₹{{ number_format($financeSummary['pending'], 2) }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-ink-500">Last Payout</p>
-                        <p class="mt-0.5 text-sm font-semibold text-ink-900">
-                            {{ $financeSummary['last_payout'] ? '₹' . number_format((float) $financeSummary['last_payout']->amount, 2) : '—' }}
-                        </p>
-                    </div>
-                </div>
-                <div class="mt-4 flex gap-2">
-                    <a href="{{ route('earnings') }}" class="flex-1 rounded-lg border border-ink-200 px-3 py-2 text-center text-xs font-medium text-ink-700 hover:bg-ink-50">
-                        View Earnings
-                    </a>
-                    <a href="{{ route('payouts') }}" class="flex-1 rounded-lg bg-brix-600 px-3 py-2 text-center text-xs font-medium text-white hover:bg-brix-700">
-                        Request Payout
-                    </a>
-                </div>
-            </div>
-
-            {{-- Recent activity --}}
-            <div class="rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-                <h3 class="text-sm font-semibold text-ink-900">Recent activity</h3>
-                <ul class="mt-3 space-y-3.5">
-                    @forelse ($recentNotifications as $notification)
-                        <li class="flex gap-2.5">
-                            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brix-500"></span>
-                            <div class="min-w-0">
-                                <p class="text-xs font-medium text-ink-900">{{ $notification->title }}</p>
-                                <p class="text-xs text-ink-500">{{ $notification->message }}</p>
-                                <p class="mt-0.5 text-[11px] text-ink-400">{{ $notification->created_at->diffForHumans() }}</p>
-                            </div>
-                        </li>
-                    @empty
-                        <li class="text-xs text-ink-400">Nothing happened recently.</li>
-                    @endforelse
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    {{-- Module adoption --}}
-    <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-        <h3 class="text-sm font-semibold text-ink-900">Module adoption</h3>
-        <div class="mt-5 space-y-4">
-            @foreach ($moduleAdoption as $module)
-                <div>
-                    <div class="mb-1.5 flex items-center justify-between text-sm">
-                        <span class="font-medium text-ink-700">{{ $module['label'] }}</span>
-                        <span class="text-ink-500">{{ $module['count'] }} stores</span>
-                    </div>
-                    <div class="h-2 w-full overflow-hidden rounded-full bg-ink-100">
-                        <div class="h-full rounded-full bg-brix-500" style="width: {{ $module['percentage'] }}%"></div>
-                    </div>
-                </div>
-            @endforeach
-        </div>
-    </div>
-
-    {{-- Referral funnel --}}
-    <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
-        <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-ink-900">Referral funnel</h3>
-            <span class="text-xs text-ink-400">Last {{ $range }} days</span>
-        </div>
-        @php
-            $funnelSteps = [
-                ['label' => 'Clicks', 'value' => $referralFunnel['clicks']],
-                ['label' => 'Leads', 'value' => $referralFunnel['leads']],
-                ['label' => 'Installed', 'value' => $referralFunnel['installed']],
-                ['label' => 'Active', 'value' => $referralFunnel['active']],
-            ];
-        @endphp
-        <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            @foreach ($funnelSteps as $i => $step)
-                <div class="rounded-xl border border-ink-200/70 px-4 py-3">
-                    <p class="text-xs font-medium uppercase tracking-wide text-ink-400">{{ $step['label'] }}</p>
-                    <p class="mt-1 text-xl font-semibold text-ink-900">{{ $step['value'] }}</p>
-                    @if ($i > 0)
-                        <p class="mt-0.5 text-[11px] text-ink-400">
-                            {{ \App\Services\Referral\ReferralFunnel::rate($step['value'], $funnelSteps[$i - 1]['value']) ?? 0 }}% of {{ strtolower($funnelSteps[$i - 1]['label']) }}
-                        </p>
-                    @endif
-                </div>
-            @endforeach
-        </div>
-        <a href="{{ route('tracking.index') }}" class="mt-4 inline-flex items-center gap-1 text-xs font-medium text-brix-600 hover:text-brix-700">
-            View full tracking <x-lucide-arrow-right class="h-3 w-3" />
-        </a>
+        </section>
     </div>
 
     {{-- Milestones --}}
-    <div class="mt-6 rounded-2xl border border-ink-200/70 bg-white p-5 shadow-subtle">
+    <section class="mt-4 rounded-xl border border-ink-200/70 bg-white p-4 shadow-subtle">
         <div class="flex items-center justify-between">
             <h3 class="text-sm font-semibold text-ink-900">Partner milestones</h3>
             <span class="text-xs font-medium text-ink-500">{{ $milestoneProgress['achieved'] }} / {{ $milestoneProgress['total'] }}</span>
         </div>
-        <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
-            <div class="h-full rounded-full bg-brix-500" style="width: {{ $milestoneProgress['total'] > 0 ? round($milestoneProgress['achieved'] / $milestoneProgress['total'] * 100) : 0 }}%"></div>
-        </div>
-        <ul class="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        <ul class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             @foreach ($milestones as $milestone)
-                <li class="flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm {{ $milestone['achieved'] ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-ink-200/70 text-ink-500' }}">
-                    <x-dynamic-component :component="$milestone['achieved'] ? 'lucide-circle-check-big' : 'lucide-circle'" class="h-4 w-4 shrink-0" />
-                    {{ $milestone['label'] }}
+                <li class="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs {{ $milestone['achieved'] ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-ink-200/70 text-ink-500' }}">
+                    <x-dynamic-component :component="$milestone['achieved'] ? 'lucide-circle-check-big' : 'lucide-circle'" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>{{ $milestone['label'] }}<span class="sr-only">{{ $milestone['achieved'] ? ' — achieved' : ' — not yet' }}</span></span>
                 </li>
             @endforeach
         </ul>
-    </div>
+    </section>
 </x-app-layout>
