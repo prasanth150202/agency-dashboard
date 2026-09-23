@@ -1,3 +1,9 @@
+# Explicit on purpose — this specific host's default DirectoryIndex
+# doesn't include index.php, so a bare "/" (a real directory, unlike
+# "/login" etc.) skipped the rewrite rule below entirely and Apache
+# served a raw 403 instead of falling through to index.php.
+DirectoryIndex index.php
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
