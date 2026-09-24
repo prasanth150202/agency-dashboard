@@ -204,6 +204,16 @@
                     <div class="{{ $row }}"><dt class="text-ink-400">Authorized</dt><dd>{{ $date($authorizedAt) }}</dd></div>
                     <div class="{{ $row }}"><dt class="text-ink-400">Activated</dt><dd>{{ $date($lead->activated_at) }}</dd></div>
                 </dl>
+                @if ($lead->shop_domain && $authorizedAt === null && in_array($lead->brix_status, ['INSTALLED', 'AUTHORIZED', 'ACTIVE'], true))
+                    <form method="POST" action="{{ route('leads.authorize', $lead) }}" class="mt-3">
+                        @csrf
+                        <button type="submit" class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brix-600 px-3 py-2 text-sm font-medium text-white hover:bg-brix-700">
+                            <x-lucide-shield-check class="h-4 w-4" aria-hidden="true" />
+                            Authorize store
+                        </button>
+                        <p class="mt-1.5 text-xs text-ink-400">Adds this store to your Stores and lets you manage it.</p>
+                    </form>
+                @endif
                 @if ($lead->store)
                     <a href="{{ route('stores.show', $lead->store) }}" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-600 hover:text-ink-900">Open store <x-lucide-arrow-right class="h-3 w-3" aria-hidden="true" /></a>
                 @endif

@@ -13,6 +13,9 @@ use App\Models\Referral\ReferralRevenueEvent;
 use App\Models\Referral\TrackingLink;
 use App\Models\Store;
 use App\Services\Brix\BrixInstallCheck;
+use App\Services\Brix\LocalStoreSync;
+use App\Services\Brix\StoreAuthorization;
+use App\Services\Brix\StoreInstallationSync;
 use App\Services\Referral\ReferralAttribution;
 use App\Services\Referral\ReferralReporting;
 use App\Services\Shopify\ShopifyStoreResolver;
@@ -215,6 +218,13 @@ class LeadController extends Controller
         $message = $isInstalled
             ? "\"{$lead->company_name}\" approved — BRIX is already installed on {$shopDomain}."
             : "\"{$lead->company_name}\" added — BRIX is not installed yet, so a referral install link was created.";
+
+        if ($request->boolean('authorize')) {
+            [$authorized, $authMessage] = $this->authorizeLeadStore($request, $lead, (int) $agency->id);
+            $message .= $authorized
+                ? ' '.$authMessage
+                : ' Not authorized yet: '.$authMessage;
+        }
 
         $redirect = redirect()->route('leads.show', $lead)->with('success', $message);
 
@@ -440,6 +450,68 @@ class LeadController extends Controller
         ], $request);
 
         return back()->with('success', 'Rechecked — this lead is now marked installed.');
+    }
+
+    /**
+     * "Authorize" from a lead: adds the shop as a store under this agency
+     * and authorizes it — the same StoreInstallationSync + StoreAuthorization
+     * path the Stores page's connect flow uses, so a lead needs no second,
+     * different way of becoming a managed store.
+     */
+    public function authorizeStore(Request $request, Lead $lead): RedirectResponse
+    {
+        Gate::authorize('update', $lead);
+
+        /** @var Organisation $organisation */
+        $organisation = $request->attributes->get('currentOrganisation');
+
+        [$ok, $message] = $this->authorizeLeadStore($request, $lead, (int) $organisation->brixAgency()->id);
+
+        return back()->with($ok ? 'success' : 'error', $message);
+    }
+
+    /** @return array{0: bool, 1: string} [ok, message] */
+    private function authorizeLeadStore(Request $request, Lead $lead, int $agencyId): array
+    {
+        if ($lead->shop_domain === null) {
+            return [false, 'This lead has no shop domain yet.'];
+        }
+
+        // Authorizing needs a real install first (same rule as
+        // StoreConnectionController::authorize).
+        [$installed] = $this->installState($lead->shop_domain);
+
+        if (! $installed) {
+            return [false, 'BRIX must be installed on this store before it can be authorized.'];
+        }
+
+        $result = StoreInstallationSync::mirror($lead->shop_domain, $agencyId, null, 'lead_authorize');
+
+        if ($result === null) {
+            return [false, 'This store already belongs to another partner, so it can\'t be authorized here.'];
+        }
+
+        $store = $result['store'];
+
+        [$relationshipStatus, $justAuthorized] = StoreAuthorization::authorize($store, $agencyId);
+        LocalStoreSync::touch($store, $relationshipStatus);
+
+        $lead->update(['store_id' => $store->id]);
+        ReferralAttribution::syncStore($store);
+
+        if ($justAuthorized) {
+            ActivityLog::record('STORE_AUTHORIZED', $agencyId, $store->id, [
+                'shop_domain' => $store->shop_domain,
+                'via' => 'lead',
+                'lead_id' => $lead->id,
+            ], $request);
+        }
+
+        return [true, match (true) {
+            $relationshipStatus === 'ACTIVE' => "{$store->shop_domain} is already active.",
+            ! $justAuthorized => "{$store->shop_domain} is already authorized.",
+            default => "{$store->shop_domain} added to your stores and authorized.",
+        }];
     }
 
     /**

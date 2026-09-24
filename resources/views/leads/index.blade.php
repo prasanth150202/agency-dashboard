@@ -270,6 +270,12 @@
                 <p class="mt-1.5 text-xs text-ink-400">We'll check if this store already has BRIX installed. If not, we'll generate a referral link for you to send them.</p>
                 @error('website')<p class="mt-1.5 text-xs text-rose-600">{{ $message }}</p>@enderror
             </div>
+            <label class="flex items-start gap-2.5 rounded-lg border border-ink-200 bg-ink-50/50 px-3 py-2.5">
+                <input type="checkbox" name="authorize" value="1" @checked(old('authorize')) class="mt-0.5 rounded border-ink-300 text-brix-600 focus:ring-brix-200">
+                <span class="text-sm text-ink-700">Authorize this store now
+                    <span class="block text-xs text-ink-400">Adds it to your Stores and authorizes it, if BRIX is already installed on it.</span>
+                </span>
+            </label>
             <div>
                 <label class="mb-1.5 block text-sm font-medium text-ink-700">Notes <span class="font-normal text-ink-400">(optional)</span></label>
                 <textarea name="notes" rows="3" class="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm text-ink-900 outline-none focus:border-brix-400 focus:ring-2 focus:ring-brix-100">{{ old('notes') }}</textarea>
